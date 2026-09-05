@@ -1,0 +1,59 @@
+# Display mode for the sign HUD:
+# - waypoint: 3D in-world floating waypoint anchored directly at the sign.
+# - overlay: Fixed 2D HUD element placed on the player's screen.
+waysigns_display_mode (Display Mode) enum waypoint waypoint,overlay
+
+# Maximum distance in blocks (meters) from the sign to show the HUD.
+waysigns_max_distance (Max Detection Distance) float 4.5 1.0 15.0
+
+# Polling interval in seconds for raycast checks (lower = more responsive, higher = lower CPU usage in multiplayer).
+waysigns_check_interval (Check Interval) float 0.05 0.01 0.5
+
+# Fade-in and fade-out animation duration in seconds (0.0 for instant display without fade transitions).
+waysigns_fade_time (Fade Duration) float 0.3 0.0 1.0
+
+# HUD overlay and typography scaling multiplier (e.g. 2.0 for 2x larger HUD overlay).
+# Automatically adapts responsively on smaller screens and mobile resolutions.
+waysigns_hud_scale (HUD Size Scale) float 2.0 1.0 3.5
+
+# Match the HUD overlay width and height to the physical aspect ratio of the pointed sign.
+# Ensures the background plaque and text layout authentically replicate the sign in the world.
+waysigns_match_aspect_ratio (Match Sign Aspect Ratio) bool true
+
+# Maximum characters per line before word wrapping.
+waysigns_max_chars_per_line (Max Characters Per Line) int 30 15 60
+
+# Maximum lines displayed simultaneously before auto-paginating long texts.
+waysigns_max_lines (Max Visible Lines) int 5 2 10
+
+# Automatically cycle through pages when text exceeds the max line limit.
+waysigns_auto_scroll (Auto Scroll Long Texts) bool true
+
+# Delay in seconds before advancing to the next page of long text.
+waysigns_scroll_delay (Scroll Delay) float 2.5 1.0 10.0
+
+# Show decorative plaque border and corner rivets around the dynamic texture background.
+waysigns_show_frame (Show Decorative Frame) bool true
+
+# Completely disable and remove attached text entities from 3rd party sign mods (signs_lib, basic_signs, etc.).
+# Frees server memory, eliminates entity limits and lag spikes, and keeps sign nodes clean.
+waysigns_disable_sign_entities (Disable 3rd Party Sign Entities) bool true
+
+# Allow attached text entities specifically for street_signs mod even when entity suppression is enabled.
+# Allows players to see 3D in-world text on street blades and highway signs while still using WaySigns.
+waysigns_enable_street_signs_entities (Enable street_signs Entities) bool false
+
+# Vertical screen position (Y coordinate 0.0 - 1.0) when using 2D overlay mode.
+# Default 0.50 places the overlay directly in the center of the screen / crosshair.
+waysigns_overlay_pos_y (Overlay Screen Y Position) float 0.50 0.2 0.8
+
+# Text contrast mode:
+# - auto: Automatically optimizes text luminance for dark or light sign backgrounds.
+# - bright_text: Always forces bright high-visibility text on all backgrounds.
+# - preserve: Uses the exact original text color without contrast adaptation.
+waysigns_contrast_mode (Contrast Mode) enum auto auto,bright_text,preserve
+
+# Background plaque darkening glaze intensity (0.0 = completely transparent natural texture, 0.8 = heavy dark glaze).
+# Default 0.40 provides rich contrast and WCAG AAA legibility while keeping wood grain and textures clearly visible.
+waysigns_background_darkness (Background Glaze Darkness) float 0.40 0.0 0.8
+
