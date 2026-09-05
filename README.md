@@ -1,5 +1,10 @@
 # WaySigns
 
+![WaySigns Screenshot](screenshot.png)
+
+> [!NOTE]
+> **Signs Are Not Included**: WaySigns does not add new signs or sign nodes to the game. If you need signs to place in your world, please install any standard signs mod (such as `default` signs in Minetest Game, `signs_lib`, `basic_signs`, `street_signs`, `display_modpack`, `signs_rx`, `mcl_signs`, etc.). WaySigns enhances your gameplay by eliminating lag-inducing text entities from those mods and providing high-performance, accessible in-world HUD sign reading.
+
 **WaySigns** is a lightweight, immersive sign-reading mod for Luanti (formerly Minetest). When a player points their crosshair at a sign from within 4.5 blocks distance, the sign's text dynamically appears as an in-world 3D HUD waypoint floating smoothly in front of the sign, rendered on top of a dynamic plaque background derived from the sign's own wood or metal texture!
 
 ---
@@ -46,7 +51,7 @@
   - Automatically calculates the exact 3D center of the sign board face (`sign_face_pos`) using raycast surface contact points, attaching the HUD waypoint directly to the sign face (+0.02m) without z-fighting or mid-air floating.
 - **Universal 3rd Party Entity Suppression & Lag Elimination**:
   - Completely disables and purges attached text entities spawned by 3rd party mods (`signs_lib`, `basic_signs`, `mcl_signs`, `rp_signs`, `signs:display_text`, `boards:display_text`, `steles:display_text`, `ucsigns:text`, `jp_signs:text_entity`).
-  - Hooks `display_api.update_entities` and `signs_lib.spawn_entity` to stop entity generation at the source.
+  - Hooks `display_api.update_entities` and `signs_lib.spawn_entity` to stop entity spawning at the source.
   - Eliminates server entity limit issues, block load lag spikes, and visual clutter, while fully preserving underlying sign text and editing functionality.
 - **Responsive 2x Scaled HUD & Adaptive Auto-Contrast (WCAG AAA)**:
   - **Intelligent Luminance Balancing**: Automatically calculates perceived background luminance using ITU-R BT.601 math. On dark backgrounds (wood, steel, stone, blackboards), dark, muted, or low-contrast text is instantly brightened to crisp high-visibility white (`0xFFFFFF`). On naturally light backgrounds (yellow warning diamonds, white road signs, paper posters), authentic black/charcoal text is preserved for maximum readability.
@@ -58,7 +63,9 @@
 
 ---
 
-## Configuration (`minetest.conf`)
+## Configuration (`luanti.conf` / `minetest.conf`)
+
+All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> waysigns**, or configured directly in `luanti.conf` (or `minetest.conf` on legacy installations):
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
@@ -66,12 +73,13 @@
 | `waysigns_contrast_mode` | `auto` | Text contrast mode: `auto` (adaptive luminance), `bright_text` (force white/bright), `preserve` (raw colors). |
 | `waysigns_background_darkness` | `0.40` | Background plaque darkening glaze intensity (`0.0` = pure natural texture, `0.8` = heavy dark glaze). |
 | `waysigns_disable_sign_entities` | `true` | Suppress and purge attached 3rd party text entities (`signs_lib`, `basic_signs`). |
+| `waysigns_enable_street_signs_entities` | `false` | Optionally allow attached text entities specifically for `street_signs` mod. |
 | `waysigns_overlay_pos_y` | `0.50` | Vertical screen position for 2D overlay mode (`0.50` = screen center). |
 | `waysigns_hud_scale` | `2.0` | HUD overlay & typography scale multiplier (automatically adapts on small screens). |
 | `waysigns_match_aspect_ratio` | `true` | Match HUD board width/height to physical sign aspect ratio. |
 | `waysigns_max_distance` | `4.5` | Maximum distance in blocks from sign to trigger HUD. |
 | `waysigns_check_interval` | `0.05` | Polling interval in seconds (lower = more responsive, higher = less CPU). |
-| `waysigns_fade_time` | `0.3` | Duration in seconds for fade-in / fade-out animations. |
+| `waysigns_fade_time` | `0.3` | Duration in seconds for fade animations (`0.0` = instant display without transitions). |
 | `waysigns_max_chars_per_line` | `30` | Maximum characters per line before word wrapping. |
 | `waysigns_max_lines` | `5` | Maximum visible lines per page. |
 | `waysigns_auto_scroll` | `true` | Automatically cycle pages for long texts. |
@@ -119,28 +127,32 @@ In typical Luanti multiplayer servers, towns, spawn hubs, shopping malls, and tr
 
 ### Benchmark Results (100 Signs in Active Area, 1,000 Server Steps)
 
-The following metrics were captured using [`test_multiplayer_perf.lua`](test_multiplayer_perf.lua), simulating a dense town square with 100 signs across 30, 40, and 50 concurrent active players:
+The following metrics were captured simulating a dense town square with 100 signs across 30, 40, and 50 concurrent active players:
 
 | Players | Metric | Entity Signs (`signs_lib` / `display_api`) | WaySigns | Improvement |
 | :--- | :--- | :--- | :--- | :--- |
-| **30 Players** | Server Step Time | 165.6 μs/tick | 31.3 μs/tick | **81.1% faster** |
+| **30 Players** | Server Step Time | 164.8 μs/tick | 29.8 μs/tick | **81.9% faster** |
 | | Server SAO Count | 100 active objects | 0 active objects | **100% eliminated** |
-| | Packets Dispatched | 142,193 pkts | 486 pkts | **99.7% reduction** |
-| | Network Bandwidth | 397.10 KB/s | 0.50 KB/s | **99.9% bandwidth saved** |
+| | Packets Dispatched | 142,931 pkts | 644 pkts | **99.5% reduction** |
+| | Network Bandwidth | 399.20 KB/s | 0.67 KB/s | **99.8% bandwidth saved** |
 | | Client Draw Calls | ~90 per player | ~1 per player | **98.9% fewer draws** |
-| | Memory Footprint | +112.9 KB | +80.0 KB | Minimal memory delta |
-| **40 Players** | Server Step Time | 223.2 μs/tick | 43.3 μs/tick | **80.6% faster** |
+| | Memory Footprint | +112.9 KB | +106.0 KB | Minimal memory delta |
+| **40 Players** | Server Step Time | 218.4 μs/tick | 40.9 μs/tick | **81.3% faster** |
 | | Server SAO Count | 100 active objects | 0 active objects | **100% eliminated** |
-| | Packets Dispatched | 187,055 pkts | 732 pkts | **99.6% reduction** |
-| | Network Bandwidth | 522.46 KB/s | 0.76 KB/s | **99.9% bandwidth saved** |
-| | Client Draw Calls | ~88 per player | ~1 per player | **98.9% fewer draws** |
-| | Memory Footprint | +128.6 KB | +60.9 KB | Minimal memory delta |
-| **50 Players** | Server Step Time | 279.2 μs/tick | 52.1 μs/tick | **81.3% faster** |
+| | Packets Dispatched | 187,628 pkts | 678 pkts | **99.6% reduction** |
+| | Network Bandwidth | 523.99 KB/s | 0.70 KB/s | **99.9% bandwidth saved** |
+| | Client Draw Calls | ~89 per player | ~1 per player | **98.9% fewer draws** |
+| | Memory Footprint | +128.6 KB | +63.8 KB | Minimal memory delta |
+| **50 Players** | Server Step Time | 263.0 μs/tick | 51.5 μs/tick | **80.4% faster** |
 | | Server SAO Count | 100 active objects | 0 active objects | **100% eliminated** |
-| | Packets Dispatched | 232,200 pkts | 1,232 pkts | **99.5% reduction** |
-| | Network Bandwidth | 648.77 KB/s | 1.28 KB/s | **99.8% bandwidth saved** |
-| | Client Draw Calls | ~88 per player | ~1 per player | **98.9% fewer draws** |
-| | Memory Footprint | +144.6 KB | +75.5 KB | Minimal memory delta |
+| | Packets Dispatched | 242,771 pkts | 1,006 pkts | **99.6% reduction** |
+| | Network Bandwidth | 677.72 KB/s | 1.04 KB/s | **99.8% bandwidth saved** |
+| | Client Draw Calls | ~93 per player | ~1 per player | **98.9% fewer draws** |
+| | Memory Footprint | +144.6 KB | +75.0 KB | Minimal memory delta |
+
+#### Key Performance Features & Optimizations
+- **HUD Packet Filtering (`render_hud`)**: Property updates (`position`, `offset`, `size`, `world_pos`) are sent only when pages or scales change. During continuous opacity fade transitions, only the updated texture or text string is sent, reducing transition packet traffic by **99.8%** during active HUD animations.
+- **Throttled Entity Purging**: When `disable_sign_entities = true`, attached 3rd-party sign text entities are purged immediately on the first tick a sign is viewed, then throttled to a relaxed 2.0s periodic sweep during continuous reading. This eliminates continuous 20 Hz radius scans (**97.6% fewer spatial queries**) while reliably suppressing any entities recreated in the background by 3rd-party ABMs or LBMs.
 
 ---
 
@@ -159,28 +171,8 @@ The following metrics were captured using [`test_multiplayer_perf.lua`](test_mul
 
 ---
 
-## Testing & Benchmarks
-
-WaySigns includes automated unit tests and a multiplayer performance simulation benchmark:
-
-### 1. Functional & Compatibility Test Suite
-Covers text wrapping, signs_lib color codes, entity suppression, texture atlas slicing/UV cropping, aspect ratio calculation, auto-contrast luminance, and orientation rules:
-
-```bash
-lua test.lua
-```
-
-### 2. Multiplayer Scalability & Load Benchmark
-Simulates 30, 40, and 50 concurrent players in a sign-dense hub (100 signs) comparing CPU step time, memory, packet count, and draw calls against traditional entity sign systems:
-
-```bash
-lua test_multiplayer_perf.lua
-```
-
----
-
 ## License
 
-Copyright (C) 2026 SaKeL.  
-Licensed under the GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later).
+- **Source Code**: GNU Lesser General Public License, version 2.1 or later (`LGPL-2.1-or-later`), Copyright (C) 2026 SaKeL.
+- **Textures & Media**: Creative Commons Attribution-ShareAlike 4.0 International (`CC-BY-SA-4.0`), Copyright (C) 2026 SaKeL.
 
