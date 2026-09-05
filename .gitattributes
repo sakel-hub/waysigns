@@ -1,0 +1,11 @@
+# Creating an archive
+
+.* export-ignore
+scripts export-ignore
+package.json export-ignore
+package-lock.json export-ignore
+test.lua export-ignore
+test_multiplayer_perf.lua export-ignore
+screenshot*.png export-ignore
+*.zip export-ignore
+logs export-ignore
