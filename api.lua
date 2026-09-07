@@ -507,6 +507,75 @@ local function inspect_box(box_def)
     return nil
 end
 
+---Determine the unit normal vector pointing directly outwards from the front face of a sign node
+---@param node table Node table {name = string, param2 = number}
+---@return Vector|nil front_dir Normal vector pointing outward from front face, or nil if unoriented
+function waysigns.get_sign_front_dir(node)
+    if not node or not node.name then
+        return nil
+    end
+    local node_def = core.registered_nodes[node.name]
+    local ptype = node_def and node_def.paramtype2
+    local p2 = node.param2 or 0
+
+    if ptype == 'wallmounted' or ptype == 'colorwallmounted' then
+        local back = core.wallmounted_to_dir(p2 % 8)
+        if back then
+            return vector.multiply(back, -1)
+        end
+    elseif ptype == 'facedir' or ptype == 'colorfacedir' then
+        local back = core.facedir_to_dir(p2 % 32)
+        if back then
+            return vector.multiply(back, -1)
+        end
+    elseif ptype == '4dir' or ptype == 'color4dir' then
+        local back = core.fourdir_to_dir(p2 % 4)
+        if back then
+            return vector.multiply(back, -1)
+        end
+    elseif ptype == 'degrotate' or ptype == 'colordegrotate' then
+        local deg = (p2 % 240) * 1.5
+        local yaw = math.rad(deg + 1)
+        local back = core.yaw_to_dir(yaw)
+        if back then
+            return vector.multiply(back, -1)
+        end
+    end
+
+    return nil
+end
+
+---Check if the player's raycast is pointing at the front face of the sign
+---@param node table Node table {name = string, param2 = number}
+---@param intersection_normal Vector|nil Normal of hit surface
+---@param look_dir Vector|nil Player look direction vector
+---@return boolean is_front True if pointing at front face (or orientation undetermined)
+function waysigns.is_pointing_front_face(node, intersection_normal, look_dir)
+    local front_dir = waysigns.get_sign_front_dir(node)
+    if not front_dir then
+        -- If node has no directional orientation defined, allow display
+        return true
+    end
+
+    if intersection_normal then
+        local norm_dot = (vector.dot and vector.dot(intersection_normal, front_dir))
+            or ((intersection_normal.x * front_dir.x) + (intersection_normal.y * front_dir.y) + (intersection_normal.z * front_dir.z))
+        if norm_dot < 0.65 then
+            return false
+        end
+    end
+
+    if look_dir then
+        local look_dot = (vector.dot and vector.dot(look_dir, front_dir))
+            or ((look_dir.x * front_dir.x) + (look_dir.y * front_dir.y) + (look_dir.z * front_dir.z))
+        if look_dot >= 0 then
+            return false
+        end
+    end
+
+    return true
+end
+
 ---Determine the visual aspect ratio (width / height) of a sign node
 ---@param nodename string Technical node name
 ---@param node_def table|nil Registered node definition from core.registered_nodes
@@ -1171,11 +1240,13 @@ function waysigns.update_player(player, dtime)
                 if node and node.name ~= 'air' and node.name ~= 'ignore' then
                     local data = waysigns.get_sign_data(pt.under, node)
                     if data then
-                        pointed_sign_pos = pt.under
-                        pointed_sign_normal = pt.intersection_normal or waysigns.DEFAULT_NORMAL
-                        pointed_sign_data = data
-                        pointed_intersection = pt.intersection_point
-                        pointed_is_attached = false
+                        if waysigns.is_pointing_front_face(node, pt.intersection_normal, look_dir) then
+                            pointed_sign_pos = pt.under
+                            pointed_sign_normal = pt.intersection_normal or waysigns.DEFAULT_NORMAL
+                            pointed_sign_data = data
+                            pointed_intersection = pt.intersection_point
+                            pointed_is_attached = false
+                        end
                         break
                     end
 
@@ -1185,12 +1256,14 @@ function waysigns.update_player(player, dtime)
                         if above_node and above_node.name ~= 'air' and above_node.name ~= 'ignore' then
                             local above_data = waysigns.get_sign_data(pt.above, above_node)
                             if above_data then
-                                pointed_sign_pos = pt.above
-                                pointed_sign_normal = pt.intersection_normal or waysigns.DEFAULT_NORMAL
-                                pointed_sign_data = above_data
-                                pointed_intersection = pt.intersection_point
-                                pointed_is_attached = true
-                                break
+                                if waysigns.is_pointing_front_face(above_node, pt.intersection_normal, look_dir) then
+                                    pointed_sign_pos = pt.above
+                                    pointed_sign_normal = pt.intersection_normal or waysigns.DEFAULT_NORMAL
+                                    pointed_sign_data = above_data
+                                    pointed_intersection = pt.intersection_point
+                                    pointed_is_attached = true
+                                    break
+                                end
                             end
                         end
                     end

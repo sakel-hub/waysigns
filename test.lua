@@ -2013,4 +2013,159 @@ end
 run_test_41()
 print('PASS Test 41')
 
-print('================ ALL 41 UNIT TESTS PASSED ================')
+print('--- Test 42: Front-face pointing detection & back/side HUD suppression ---')
+;(function()
+    -- Register test directional sign nodes
+    core.registered_nodes['test:wall_sign'] = {
+        description = 'Test Wallmounted Sign',
+        drawtype = 'nodebox',
+        paramtype2 = 'wallmounted',
+    }
+    core.registered_nodes['test:facedir_sign'] = {
+        description = 'Test Facedir Sign',
+        drawtype = 'nodebox',
+        paramtype2 = 'facedir',
+    }
+
+    -- 1. Verify get_sign_front_dir for wallmounted nodes
+    -- param2=4: attached to +Z wall (back points +Z {0,0,1}) -> front must point -Z {0,0,-1}
+    local wall_node_pz = { name = 'test:wall_sign', param2 = 4 }
+    local front_pz = waysigns.get_sign_front_dir(wall_node_pz)
+    assert(front_pz and front_pz.z == -1 and front_pz.x == 0 and front_pz.y == 0,
+        'Wallmounted param2=4 (+Z wall) must have front pointing -Z {0,0,-1}')
+
+    -- param2=5: attached to -Z wall (back points -Z {0,0,-1}) -> front must point +Z {0,0,1}
+    local wall_node_nz = { name = 'test:wall_sign', param2 = 5 }
+    local front_nz = waysigns.get_sign_front_dir(wall_node_nz)
+    assert(front_nz and front_nz.z == 1 and front_nz.x == 0 and front_nz.y == 0,
+        'Wallmounted param2=5 (-Z wall) must have front pointing +Z {0,0,1}')
+
+    -- param2=2: attached to +X wall (back points +X {1,0,0}) -> front must point -X {-1,0,0}
+    local wall_node_px = { name = 'test:wall_sign', param2 = 2 }
+    local front_px = waysigns.get_sign_front_dir(wall_node_px)
+    assert(front_px and front_px.x == -1 and front_px.y == 0 and front_px.z == 0,
+        'Wallmounted param2=2 (+X wall) must have front pointing -X {-1,0,0}')
+
+    -- 2. Verify get_sign_front_dir for facedir nodes
+    -- param2=0: faces -Z (back points +Z {0,0,1}) -> front must point -Z {0,0,-1}
+    local fdir_node_0 = { name = 'test:facedir_sign', param2 = 0 }
+    local front_fdir_0 = waysigns.get_sign_front_dir(fdir_node_0)
+    assert(front_fdir_0 and front_fdir_0.z == -1,
+        'Facedir param2=0 must have front pointing -Z')
+
+    -- param2=2: faces +Z (back points -Z {0,0,-1}) -> front must point +Z {0,0,1}
+    local fdir_node_2 = { name = 'test:facedir_sign', param2 = 2 }
+    local front_fdir_2 = waysigns.get_sign_front_dir(fdir_node_2)
+    assert(front_fdir_2 and front_fdir_2.z == 1,
+        'Facedir param2=2 must have front pointing +Z')
+
+    -- 3. Direct evaluation of is_pointing_front_face
+    local test_sign = { name = 'test:wall_sign', param2 = 4 } -- front is {0, 0, -1}
+    local front_hit_normal = vector.new(0, 0, -1)
+    local back_hit_normal = vector.new(0, 0, 1)
+    local side_hit_normal = vector.new(1, 0, 0)
+    local top_hit_normal = vector.new(0, 1, 0)
+
+    local look_towards_sign = vector.new(0, 0, 1) -- player looking in +Z direction towards sign at larger Z
+    local look_away_from_sign = vector.new(0, 0, -1) -- player looking in -Z direction (behind sign)
+
+    -- Case A: Front face hit with incoming look direction -> TRUE
+    assert(waysigns.is_pointing_front_face(test_sign, front_hit_normal, look_towards_sign) == true,
+        'Pointing at front face must return true')
+
+    -- Case B: Back face hit -> FALSE
+    assert(waysigns.is_pointing_front_face(test_sign, back_hit_normal, look_away_from_sign) == false,
+        'Pointing at back face must return false')
+
+    -- Case C: Side edge hit -> FALSE
+    assert(waysigns.is_pointing_front_face(test_sign, side_hit_normal, look_towards_sign) == false,
+        'Pointing at side edge must return false')
+
+    -- Case D: Top edge hit -> FALSE
+    assert(waysigns.is_pointing_front_face(test_sign, top_hit_normal, look_towards_sign) == false,
+        'Pointing at top edge must return false')
+
+    -- 4. Full raycast integration with update_player
+    local sign_pos = { x = 40, y = 1, z = 40, meta = { text = 'Front Only Warning Sign' } }
+    local mock_face_player = {
+        name = 'FrontTester',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        hud_add = function() return 1 end,
+        hud_change = function() end,
+        hud_remove = function() end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_window_size = function() return { x = 1920, y = 1080 } end,
+        get_fov = function() return 0 end,
+    }
+
+    core.get_node_or_nil = function(p)
+        if vector.equals(p, sign_pos) then
+            return { name = 'test:wall_sign', param2 = 4 } -- front is -Z
+        end
+        return nil
+    end
+
+    local simulated_ray_hit = nil
+    core.raycast = function()
+        local yielded = false
+        return function()
+            if not yielded and simulated_ray_hit then
+                yielded = true
+                return simulated_ray_hit
+            end
+            return nil
+        end
+    end
+
+    waysigns.settings.fade_time = 0.0 -- instant HUD for deterministic assertions
+    local player_state = waysigns.get_or_create_player_state(mock_face_player)
+
+    -- Step 1: Player looks at FRONT face of the sign (from z=38 looking +Z toward z=40)
+    mock_face_player.get_pos = function() return vector.new(40, 1, 38) end
+    mock_face_player.get_look_dir = function() return vector.new(0, 0, 1) end
+    simulated_ray_hit = {
+        type = 'node',
+        under = sign_pos,
+        intersection_normal = vector.new(0, 0, -1), -- front normal points towards -Z
+        intersection_point = { x = 40, y = 1, z = 39.95 },
+    }
+    player_state.check_timer = 0
+    waysigns.update_player(mock_face_player, 0.1)
+    assert(player_state.is_visible == true, 'HUD must be visible when pointing at FRONT face')
+    assert(vector.equals(player_state.current_sign_pos, sign_pos), 'current_sign_pos must match sign_pos')
+
+    -- Step 2: Player turns around and looks at BACK face of the sign (from z=42 looking -Z toward z=40)
+    mock_face_player.get_pos = function() return vector.new(40, 1, 42) end
+    mock_face_player.get_look_dir = function() return vector.new(0, 0, -1) end
+    simulated_ray_hit = {
+        type = 'node',
+        under = sign_pos,
+        intersection_normal = vector.new(0, 0, 1), -- back normal points towards +Z
+        intersection_point = { x = 40, y = 1, z = 40.05 },
+    }
+    player_state.check_timer = 0
+    waysigns.update_player(mock_face_player, 0.1)
+    assert(player_state.is_visible == false, 'HUD must NOT be visible when pointing at BACK face')
+    assert(player_state.current_sign_pos == nil, 'current_sign_pos must be cleared on back face')
+
+    -- Step 3: Player looks at SIDE edge of the sign
+    mock_face_player.get_pos = function() return vector.new(38, 1, 40) end
+    mock_face_player.get_look_dir = function() return vector.new(1, 0, 0) end
+    simulated_ray_hit = {
+        type = 'node',
+        under = sign_pos,
+        intersection_normal = vector.new(-1, 0, 0), -- side normal
+        intersection_point = { x = 39.5, y = 1, z = 40 },
+    }
+    player_state.check_timer = 0
+    waysigns.update_player(mock_face_player, 0.1)
+    assert(player_state.is_visible == false, 'HUD must NOT be visible when pointing at SIDE edge')
+
+    waysigns.remove_all_huds(mock_face_player)
+    return true
+end)()
+print('PASS Test 42')
+
+print('================ ALL 42 UNIT TESTS PASSED ================')
