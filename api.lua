@@ -763,6 +763,23 @@ function waysigns.remove_all_huds(player)
     state.rendered_scale = nil
 end
 
+---Check if a player is dead or undergoing a death sequence
+---@param player ObjectRef Player reference
+---@return boolean is_dead True if player has 0 HP or death sequence active
+function waysigns.is_player_dead(player)
+    if not player then
+        return false
+    end
+    if player.get_hp and player:get_hp() <= 0 then
+        return true
+    end
+    local meta = player.get_meta and player:get_meta()
+    if meta and meta:get_string('deathstats:death_active') == '1' then
+        return true
+    end
+    return false
+end
+
 ---Calculate the exact 3D center position on the physical face of a sign node.
 ---Offsets 0.02m (2cm) in front of the board surface to eliminate z-fighting.
 ---@param sign_pos Vector Integer coordinate of the sign node
@@ -820,6 +837,11 @@ end
 ---@param player ObjectRef Target player reference
 ---@param state WaySignsPlayerState Player HUD state tracking current sign and opacity
 function waysigns.render_hud(player, state)
+    if waysigns.is_player_dead(player) then
+        waysigns.remove_all_huds(player)
+        return
+    end
+
     local sign_data = state.current_sign_data
     if not sign_data then
         waysigns.remove_all_huds(player)
@@ -1153,6 +1175,10 @@ end
 ---@param intersection_point Vector|nil Exact surface hit point from raycast
 ---@param is_attached_above boolean|nil Whether sign is mounted at pt.above
 function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_point, is_attached_above)
+    if waysigns.is_player_dead(player) then
+        return
+    end
+
     local state = waysigns.get_or_create_player_state(player)
     local pos_changed = not state.current_sign_pos or not vector.equals(state.current_sign_pos, sign_pos)
     local text_changed = not state.current_sign_data or (state.current_sign_data.raw_text ~= sign_data.raw_text)
@@ -1200,6 +1226,20 @@ end
 ---@param player ObjectRef Player being updated
 ---@param dtime number Delta time in seconds since last server step
 function waysigns.update_player(player, dtime)
+    -- Short-circuit update loop when player is dead: eliminate raycasting, node lookups, and HUD rendering
+    if waysigns.is_player_dead(player) then
+        local name = player.get_player_name and player:get_player_name()
+        local state = name and waysigns.players[name]
+        if state then
+            if state.is_visible or state.hud_bg_id or (state.opacity and state.opacity > 0) then
+                waysigns.remove_all_huds(player)
+            end
+            state.check_timer = 0
+            state.page_timer = 0
+        end
+        return
+    end
+
     local state = waysigns.get_or_create_player_state(player)
 
     state.check_timer = state.check_timer + dtime
@@ -1365,5 +1405,11 @@ end
 ---@param player ObjectRef Deceased player reference
 function waysigns.on_dieplayer(player)
     waysigns.remove_all_huds(player)
+    local name = player and player.get_player_name and player:get_player_name()
+    local state = name and waysigns.players[name]
+    if state then
+        state.check_timer = 0
+        state.page_timer = 0
+    end
 end
 

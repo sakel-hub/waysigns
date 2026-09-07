@@ -2168,4 +2168,110 @@ print('--- Test 42: Front-face pointing detection & back/side HUD suppression --
 end)()
 print('PASS Test 42')
 
-print('================ ALL 42 UNIT TESTS PASSED ================')
+--- Test 43: Dead player raycast short-circuit and HUD suppression ---
+;(function()
+    print('--- Test 43: Dead player raycast short-circuit and HUD suppression ---')
+
+    local mock_meta = {}
+    local p_hp = 20
+    local mock_dead_player = {
+        name = 'DeadTester',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_hp = function() return p_hp end,
+        set_hp = function(_self, hp) p_hp = hp end,
+        get_meta = function()
+            return {
+                get_string = function(_self, k) return mock_meta[k] or '' end,
+                set_string = function(_self, k, v) mock_meta[k] = v end,
+            }
+        end,
+        hud_add = function() return 100 end,
+        hud_change = function() end,
+        hud_remove = function() end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_window_size = function() return { x = 1920, y = 1080 } end,
+        get_fov = function() return 0 end,
+        get_pos = function() return vector.new(10, 1, 10) end,
+        get_look_dir = function() return vector.new(0, 0, 1) end,
+    }
+
+    -- 1. Verify waysigns.is_player_dead
+    assert(waysigns.is_player_dead(mock_dead_player) == false, 'Living player with HP 20 must not be dead')
+    p_hp = 0
+    assert(waysigns.is_player_dead(mock_dead_player) == true, 'Player with HP 0 must be dead')
+    p_hp = 20
+    mock_meta['deathstats:death_active'] = '1'
+    assert(waysigns.is_player_dead(mock_dead_player) == true, 'Player with deathstats:death_active must be dead')
+    mock_meta['deathstats:death_active'] = ''
+    assert(waysigns.is_player_dead(mock_dead_player) == false, 'Player with cleared metadata and HP 20 must be alive')
+
+    -- 2. Verify waysigns.show_hud rejects dead player
+    p_hp = 0
+    local sign_pos = { x = 10, y = 1, z = 12 }
+    local sign_data = {
+        nodename = 'default:sign_wall_wood',
+        tile = 'default_wood.png',
+        raw_text = 'Test Sign',
+        wrapped = { pages = { { 'Test Sign' } }, max_line_len = 9 },
+        is_metal = false,
+    }
+    waysigns.show_hud(mock_dead_player, sign_pos, sign_data)
+    local dead_state = waysigns.players['DeadTester']
+    assert(not dead_state or dead_state.is_visible == false, 'show_hud must not show HUD for dead player')
+
+    -- 3. Verify update_player short-circuits and skips core.raycast completely when dead
+    local raycast_call_count = 0
+    core.raycast = function()
+        raycast_call_count = raycast_call_count + 1
+        return function() return nil end
+    end
+
+    waysigns.settings.check_interval = 0.05
+    dead_state = waysigns.get_or_create_player_state(mock_dead_player)
+    dead_state.check_timer = 1.0 -- ensure timer would trigger raycast if alive
+
+    waysigns.update_player(mock_dead_player, 0.1)
+    assert(raycast_call_count == 0, 'core.raycast must NEVER be called when player is dead')
+    assert(dead_state.check_timer == 0, 'check_timer must be reset when dead')
+
+    -- 4. Verify cleanup when dying while HUD is active
+    p_hp = 20
+    dead_state.is_visible = true
+    dead_state.hud_bg_id = 101
+    dead_state.opacity = 1.0
+    dead_state.current_sign_pos = sign_pos
+    dead_state.current_sign_data = sign_data
+
+    -- Player dies: next update_player must clean up all HUD elements
+    p_hp = 0
+    waysigns.update_player(mock_dead_player, 0.05)
+    assert(dead_state.is_visible == false, 'HUD must be hidden when dead')
+    assert(dead_state.hud_bg_id == nil, 'hud_bg_id must be cleared when dead')
+    assert(dead_state.opacity == 0, 'opacity must be 0 when dead')
+    assert(raycast_call_count == 0, 'core.raycast still must not be called')
+
+    -- 5. Verify on_dieplayer cleans up state and resets timers
+    p_hp = 20
+    dead_state.is_visible = true
+    dead_state.hud_bg_id = 102
+    dead_state.opacity = 1.0
+    dead_state.check_timer = 0.04
+    waysigns.on_dieplayer(mock_dead_player)
+    assert(dead_state.is_visible == false, 'on_dieplayer must remove HUD')
+    assert(dead_state.hud_bg_id == nil, 'on_dieplayer must clear hud_bg_id')
+    assert(dead_state.check_timer == 0, 'on_dieplayer must reset check_timer')
+
+    -- 6. Verify raycasting resumes when player respawns (HP > 0)
+    p_hp = 20
+    dead_state.check_timer = 1.0
+    waysigns.update_player(mock_dead_player, 0.1)
+    assert(raycast_call_count == 1, 'core.raycast must resume when player respawns with HP > 0')
+
+    waysigns.remove_all_huds(mock_dead_player)
+    return true
+end)()
+print('PASS Test 43')
+
+print('================ ALL 43 UNIT TESTS PASSED ================')
