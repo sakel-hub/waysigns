@@ -133,22 +133,78 @@ vector = {
     round = function(p) return {x = math.floor(p.x + 0.5), y = math.floor(p.y + 0.5), z = math.floor(p.z + 0.5)} end,
 }
 
-bit = bit or {
-    band = function(...)
-        local args = {...}
-        local res = args[1] or 0
-        for i = 2, #args do res = res & args[i] end
-        return res
-    end,
-    bor = function(...)
-        local args = {...}
-        local res = args[1] or 0
-        for i = 2, #args do res = res | args[i] end
-        return res
-    end,
-    lshift = function(a, b) return a << b end,
-    rshift = function(a, b) return a >> b end,
-}
+if not bit then
+    local has_bit, mod_bit = pcall(require, 'bit')
+    if has_bit and type(mod_bit) == 'table' then
+        bit = mod_bit
+    else
+        local has_bit32, mod_bit32 = pcall(require, 'bit32')
+        if has_bit32 and type(mod_bit32) == 'table' then
+            bit = mod_bit32
+        else
+            local function band2(a, b)
+                local res = 0
+                local bitval = 1
+                a = math.floor(a) % 4294967296
+                b = math.floor(b) % 4294967296
+                while a > 0 and b > 0 do
+                    local ra = a % 2
+                    local rb = b % 2
+                    if ra == 1 and rb == 1 then
+                        res = res + bitval
+                    end
+                    a = (a - ra) / 2
+                    b = (b - rb) / 2
+                    bitval = bitval * 2
+                end
+                return res
+            end
+
+            local function bor2(a, b)
+                local res = 0
+                local bitval = 1
+                a = math.floor(a) % 4294967296
+                b = math.floor(b) % 4294967296
+                while a > 0 or b > 0 do
+                    local ra = a % 2
+                    local rb = b % 2
+                    if ra == 1 or rb == 1 then
+                        res = res + bitval
+                    end
+                    a = (a - ra) / 2
+                    b = (b - rb) / 2
+                    bitval = bitval * 2
+                end
+                return res
+            end
+
+            bit = {
+                band = function(...)
+                    local args = {...}
+                    local res = args[1] or 0
+                    for i = 2, #args do
+                        res = band2(res, args[i])
+                    end
+                    return res
+                end,
+                bor = function(...)
+                    local args = {...}
+                    local res = args[1] or 0
+                    for i = 2, #args do
+                        res = bor2(res, args[i])
+                    end
+                    return res
+                end,
+                lshift = function(a, b)
+                    return math.floor(a * (2 ^ b)) % 4294967296
+                end,
+                rshift = function(a, b)
+                    return math.floor((math.floor(a) % 4294967296) / (2 ^ b))
+                end,
+            }
+        end
+    end
+end
 
 local script_dir = '.'
 local info = debug.getinfo(1, 'S')
