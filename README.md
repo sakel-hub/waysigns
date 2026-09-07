@@ -127,7 +127,7 @@ In typical Luanti multiplayer servers, towns, spawn hubs, shopping malls, and tr
 
 ### Benchmark Results (100 Signs in Active Area, 1,000 Server Steps)
 
-The following metrics were captured simulating a dense town square with 100 signs across 30, 40, and 50 concurrent active players:
+The following metrics were captured using [`test_multiplayer_perf.lua`](test_multiplayer_perf.lua), simulating a dense town square with 100 signs across 30, 40, and 50 concurrent active players:
 
 | Players | Metric | Entity Signs (`signs_lib` / `display_api`) | WaySigns | Improvement |
 | :--- | :--- | :--- | :--- | :--- |
@@ -168,6 +168,26 @@ The following metrics were captured simulating a dense town square with 100 sign
 | **Entity Limit Headroom** | **Consumes Limits**: Can exhaust `max_objects_per_block` (default 64) in sign-dense areas, despawning mobs, carts, or dropped items. | **100% Headroom**: Does not consume a single entity slot, leaving full quota for mobs, carts, and dropped items. |
 | **Readability & Contrast** | **Fixed & Blurry**: Low-resolution 3D textures, pixel-noise backgrounds, z-fighting on walls, and illegible text at medium distance. | **Crystal Clear (WCAG AAA)**: 2x scaled typography, ITU-R BT.601 adaptive luminance balancing ($\ge 7.0:1$ contrast ratio), frosted glass backings. |
 | **Long Text Handling** | **Truncation / Micro-fonts**: Long text is either cut off or shrunk into unreadable micro-glyphs on the sign face. | **Smart Pagination**: Intelligently word-wraps long text and paginates into auto-advancing pages (> 5 lines). |
+
+---
+
+## Testing & Benchmarks
+
+WaySigns includes automated unit tests and a multiplayer performance simulation benchmark:
+
+### 1. Functional & Compatibility Test Suite
+Covers text wrapping, signs_lib color codes, entity suppression, texture atlas slicing/UV cropping, aspect ratio calculation, auto-contrast luminance, and orientation rules:
+
+```bash
+lua test.lua
+```
+
+### 2. Multiplayer Scalability & Load Benchmark
+Simulates 30, 40, and 50 concurrent players in a sign-dense hub (100 signs) comparing CPU step time, memory, packet count, and draw calls against traditional entity sign systems:
+
+```bash
+lua test_multiplayer_perf.lua
+```
 
 ---
 

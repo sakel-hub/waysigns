@@ -35,6 +35,9 @@ jobs:
           export PATH="$HOME/.luarocks/bin:$PATH"
           luacheck .
 
+      - name: Run Unit Tests
+        run: lua5.1 test.lua
+
   deploy:
     name: Deploy to ContentDB
     needs: test_and_lint

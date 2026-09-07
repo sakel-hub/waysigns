@@ -9,6 +9,8 @@
         "npm": ">=8.0.0"
     },
     "scripts": {
+        "test": "lua test.lua",
+        "test:perf": "lua test_multiplayer_perf.lua",
         "lint": "luacheck .",
         "push:ci": "node ./scripts/deploy.mjs"
     },

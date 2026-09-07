@@ -3,5 +3,3 @@ node_modules
 *.log
 logs
 .env
-test.lua
-test_multiplayer_perf.lua
