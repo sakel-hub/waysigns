@@ -23,7 +23,7 @@
   - Throttled raycasting loop with zero per-frame 60 FPS overhead.
   - In-memory node metadata caching (zero redundant disk/block reads).
   - Suppression of network packets during steady state.
-  - Complete memory and HUD cleanup on player leave or death.
+  - Complete memory and HUD cleanup on player leave or death, with automatic raycasting short-circuit while dead.
 - **Broad Mod Compatibility**:
   - Standard Minetest Game signs (`default:sign_wall_wood`, `default:sign_wall_steel`)
   - `signs_lib` (all 15 wood varieties, post signs, hanging signs, yard signs with 2x1 front-face sheet cropping)
