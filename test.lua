@@ -594,9 +594,14 @@ screen_state.current_sign_data = data_mailbox
 screen_state.opacity = 1.0
 
 waysigns.render_hud(mock_screen_player, screen_state)
-local wp_bg = captured_hud_defs[screen_state.hud_bg_id]
-assert(wp_bg.type == 'image_waypoint', 'Expected image_waypoint for waypoint mode')
-assert(wp_bg.world_pos.z == face_pos1.z, 'Expected waypoint world_pos to equal sign_face_pos')
+do
+    local wp_bg = captured_hud_defs[screen_state.hud_bg_id]
+    assert(wp_bg.type == 'image_waypoint', 'Expected image_waypoint for waypoint mode')
+    assert(wp_bg.world_pos.z == face_pos1.z, 'Expected waypoint world_pos to equal sign_face_pos')
+    local wp_line = captured_hud_defs[screen_state.hud_line_ids[1]]
+    assert(wp_line.type == 'waypoint', 'Expected waypoint for text line in waypoint mode')
+    assert(not wp_line.name:find('\27'), 'Waypoint name must not contain escape sequences to prevent unescape_translate warnings')
+end
 
 -- 2. Overlay mode: position is centered at { x = 0.5, y = 0.50 }
 waysigns.settings.display_mode = 'overlay'
