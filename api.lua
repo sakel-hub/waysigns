@@ -1035,14 +1035,10 @@ function waysigns.render_hud(player, state)
         -- overflows on ARM64 / macOS / Linux when bit 31 is set, corrupting the color and turning text black!
         local current_color = contrast_color
 
-        -- Embed explicit Luanti EnrichedString color escape sequence (\x1b(c@#ffffff)) for 2D overlay HUDs.
-        -- For 3D world waypoint HUDs, omit escape sequences because the client engine runs unescape_translate()
-        -- on the 'name' field, which warns on non-translation escape codes ('c@#fff'); waypoint color is already
-        -- properly specified via the 24-bit RGB 'number' field.
-        local text_prefix = is_waypoint and '' or core.get_color_escape_sequence(string.format('#%06x', contrast_color))
-
-        -- If text has faded out to near-zero, use empty string to guarantee no glyphs render on screen
-        local display_text = (text_alpha > 0.01) and (text_prefix .. line_str) or ''
+        -- HUD text color in Luanti is specified via the 24-bit RGB 'number' field.
+        -- Omit get_color_escape_sequence (\x1b(c@#ffffff)) because the client engine's unescape_translate()
+        -- parser runs on HUD text and emits 'Ignoring escape sequence c@#fff in translation' warnings.
+        local display_text = (text_alpha > 0.01) and line_str or ''
 
         local line_y = start_y + (i - 1) * line_height
         local elem_id = state.hud_line_ids[i]
@@ -1110,8 +1106,7 @@ function waysigns.render_hud(player, state)
         local pg_base = is_light_bg and 60 or 220
         local pb_base = is_light_bg and 60 or 180
         local page_color = bit.bor(bit.lshift(pr_base, 16), bit.lshift(pg_base, 8), pb_base)
-        local page_prefix = is_waypoint and '' or core.get_color_escape_sequence(string.format('#%06x', page_color))
-        local display_page = (text_alpha > 0.01) and (page_prefix .. page_str) or ''
+        local display_page = (text_alpha > 0.01) and page_str or ''
 
         if not state.hud_page_id then
             if is_waypoint then
