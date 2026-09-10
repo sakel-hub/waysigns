@@ -16,7 +16,10 @@
     License along with this library; if not, see <https://www.gnu.org/licenses/>.
 --]]
 
-local S = core.get_translator and core.get_translator(core.get_current_modname()) or function(s) return s end
+local S = core.get_translator and core.get_translator(core.get_current_modname()) or function(s, ...)
+    local args = {...}
+    return (s:gsub('@(%d+)', function(n) return tostring(args[tonumber(n)] or '') end))
+end
 
 local PLAQUE_OPTIONS = {
     { key = 'default', label = 'Default (Node Texture / Neutral)' },
@@ -85,32 +88,6 @@ end
 -- Per-player active target cache for formspec session tracking
 local active_targets = {}
 
----Resolve index of plaque key in options list
----@param key string|nil Plaque key
----@return integer index 1-based index
-local function get_plaque_index(key)
-    if not key then return 1 end
-    for idx, opt in ipairs(PLAQUE_OPTIONS) do
-        if opt.key == key then
-            return idx
-        end
-    end
-    return 1
-end
-
----Resolve index of color key in options list
----@param key string|nil Color key
----@return integer index 1-based index
-local function get_color_index(key)
-    if not key then return 1 end
-    for idx, opt in ipairs(COLOR_OPTIONS) do
-        if opt.key == key then
-            return idx
-        end
-    end
-    return 1
-end
-
 ---Resolve plaque key from field value (string label, key, or index)
 ---@param field_value string|number|nil
 ---@return string|nil key
@@ -169,35 +146,29 @@ local function resolve_color_key(field_value)
     return nil
 end
 
----Build dropdown item string from option tables
----@param options table[] Array of option tables with label field
----@return string dropdown_str Comma-separated labels
-local function build_dropdown_string(options)
-    local items = {}
-    for _, opt in ipairs(options) do
-        table.insert(items, core.formspec_escape(opt.label))
-    end
-    return table.concat(items, ',')
-end
-
-local plaque_dropdown_items = build_dropdown_string(PLAQUE_OPTIONS)
-local color_dropdown_items = build_dropdown_string(COLOR_OPTIONS)
-
 ---Build modern inscription formspec string (formspec_version[6])
 ---@param target table Target tracking table (pos, title, text, plaque, color, default_tile)
 ---@return string formspec
 local function build_inscription_formspec(target)
-    local plaque_idx = get_plaque_index(target.plaque)
-    local color_idx = get_color_index(target.color)
     local max_chars = waysigns.settings.marker_max_chars or 250
     local header_title = target.title or S('WaySigns Inscription')
+    local current_text = target.text or ''
+    local current_len = #current_text
+
+    local counter_color = '#8e95a5'
+    if current_len > max_chars then
+        counter_color = '#ff5252'
+    elseif current_len >= math.floor(max_chars * 0.9) then
+        counter_color = '#ffd700'
+    end
+    local counter_str = colorize_text(counter_color, S('@1 / @2 chars', current_len, max_chars))
 
     local parts = {
         'formspec_version[6]',
-        'size[10.2,9.8]',
+        'size[10.2,9.6]',
         'no_prepend[]',
         'bgcolor[#16181f;both;#00000000]',
-        'box[0,0;10.2,9.8;#16181f]',
+        'box[0,0;10.2,9.6;#16181f]',
 
         -- Modern styled buttons and labels
         'style_type[button,button_exit;border=false;content_offset=0;font=bold]',
@@ -217,68 +188,63 @@ local function build_inscription_formspec(target)
         'button_exit[9.40,0.20;0.55,0.55;close_btn;✕]',
         'tooltip[close_btn;', core.formspec_escape(S('Close')), ']',
 
-        -- Inscription Textarea
-        'label[0.50,1.35;', core.formspec_escape(S('Inscription Text (max @1 chars):', max_chars)), ']',
-        'textarea[0.50,1.65;9.20,2.00;inscription;;', core.formspec_escape(target.text or ''), ']',
+        -- Inscription Textarea with Live Character Counter
+        'label[0.50,1.35;', core.formspec_escape(S('Inscription Text:')), ']',
+        'label[8.20,1.35;', core.formspec_escape(counter_str), ']',
+        'textarea[0.50,1.65;9.20,1.85;inscription;;', core.formspec_escape(current_text), ']',
 
         -- Plaque Material Swatches Section
-        'label[0.50,3.95;', core.formspec_escape(S('Plaque Material Style:')), ']',
+        'label[0.50,3.75;', core.formspec_escape(S('Plaque Material Style:')), ']',
     }
 
     local current_plaque = target.plaque or 'default'
     for idx, opt in ipairs(PLAQUE_OPTIONS) do
-        local swatch_x = 0.50 + (idx - 1) * 1.18
-        local swatch_y = 4.30
+        local swatch_x = 0.50 + (idx - 1) * 1.58
+        local swatch_y = 4.10
         local tex = get_plaque_texture(opt.key, target.default_tile)
 
         -- Visual active halo border around the selected plaque
         if opt.key == current_plaque then
-            table.insert(parts, string.format('box[%.2f,%.2f;1.10,1.10;#ffd700]', swatch_x - 0.05, swatch_y - 0.05))
+            table.insert(parts, string.format('box[%.2f,%.2f;1.40,1.15;#ffd700]', swatch_x - 0.05, swatch_y - 0.05))
         else
-            table.insert(parts, string.format('box[%.2f,%.2f;1.06,1.06;#2a2e39]', swatch_x - 0.03, swatch_y - 0.03))
+            table.insert(parts, string.format('box[%.2f,%.2f;1.34,1.09;#2a2e39]', swatch_x - 0.02, swatch_y - 0.02))
         end
 
-        table.insert(parts, string.format('image_button[%.2f,%.2f;1.00,1.00;%s;plaque_sel_%s;]',
+        table.insert(parts, string.format('image_button[%.2f,%.2f;1.30,1.05;%s;plaque_sel_%s;]',
             swatch_x, swatch_y, tex, opt.key))
         table.insert(parts, string.format('tooltip[plaque_sel_%s;%s]',
             opt.key, core.formspec_escape(opt.label)))
     end
 
-    -- Dropdown alongside swatches
-    table.insert(parts, string.format('dropdown[7.65,4.40;2.05,0.80;plaque;%s;%d;true]',
-        plaque_dropdown_items, plaque_idx))
-    table.insert(parts, string.format('tooltip[plaque;%s]', core.formspec_escape(S('Select Plaque Material'))))
-
-    -- Left: Text Color Dropdown & Quick Palette
-    table.insert(parts, 'label[0.50,5.65;' .. core.formspec_escape(S('Text Color:')) .. ']')
-    table.insert(parts, string.format('dropdown[0.50,6.05;3.20,0.80;color;%s;%d;true]',
-        color_dropdown_items, color_idx))
-    table.insert(parts, string.format('tooltip[color;%s]', core.formspec_escape(S('Select Text Color'))))
-
-    -- Quick Color Palette Swatches
+    -- Left: Text Color Swatches (3 columns x 2 rows)
+    table.insert(parts, 'label[0.50,5.55;' .. core.formspec_escape(S('Text Color:')) .. ']')
     local current_color = target.color or 'white'
     for c_idx, c_opt in ipairs(COLOR_OPTIONS) do
-        local c_x = 0.50 + (c_idx - 1) * 0.54
-        local c_y = 7.15
+        local col = (c_idx - 1) % 3
+        local row = math.floor((c_idx - 1) / 3)
+        local c_x = 0.50 + col * 1.15
+        local c_y = 5.95 + row * 1.05
         local hex = get_color_hex(c_opt.key)
+        local color_tex = string.format('[fill:32x32:%s', hex)
 
         if c_opt.key == current_color then
-            table.insert(parts, string.format('box[%.2f,%.2f;0.52,0.52;#ffd700]', c_x - 0.04, c_y - 0.04))
+            table.insert(parts, string.format('box[%.2f,%.2f;1.05,0.98;#ffd700]', c_x - 0.04, c_y - 0.04))
         else
-            table.insert(parts, string.format('box[%.2f,%.2f;0.48,0.48;#2a2e39]', c_x - 0.02, c_y - 0.02))
+            table.insert(parts, string.format('box[%.2f,%.2f;0.99,0.94;#3d4353]', c_x - 0.02, c_y - 0.02))
         end
 
-        table.insert(parts, string.format('style[color_sel_%s;bgcolor=%s;border=false]', c_opt.key, hex))
-        table.insert(parts, string.format('button[%.2f,%.2f;0.44,0.44;color_sel_%s;]', c_x, c_y, c_opt.key))
-        table.insert(parts, string.format('tooltip[color_sel_%s;%s]', c_opt.key, core.formspec_escape(c_opt.label)))
+        table.insert(parts, string.format('image_button[%.2f,%.2f;0.95,0.90;%s;color_sel_%s;]',
+            c_x, c_y, color_tex, c_opt.key))
+        table.insert(parts, string.format('tooltip[color_sel_%s;%s]',
+            c_opt.key, core.formspec_escape(c_opt.label)))
     end
 
     -- Right: Live Waypoint Plaque Preview Card
-    table.insert(parts, 'label[4.10,5.65;' .. core.formspec_escape(S('Live Plaque Preview:')) .. ']')
-    table.insert(parts, 'box[4.10,6.05;5.60,2.15;#14171f]')
+    table.insert(parts, 'label[4.20,5.55;' .. core.formspec_escape(S('Live Plaque Preview:')) .. ']')
+    table.insert(parts, 'box[4.20,5.95;5.50,2.00;#14171f]')
 
     local preview_tile = get_plaque_texture(target.plaque, target.default_tile)
-    table.insert(parts, string.format('image[4.20,6.15;5.40,1.95;%s]', preview_tile))
+    table.insert(parts, string.format('image[4.30,6.05;5.30,1.80;%s]', preview_tile))
 
     local color_hex = get_color_hex(target.color)
     local preview_raw = target.text
@@ -293,18 +259,18 @@ local function build_inscription_formspec(target)
     local colored_preview = colorize_text(color_hex, preview_raw)
     local subtitle = colorize_text('#8e95a5', S('(HUD Waypoint Preview)'))
 
-    table.insert(parts, 'label[4.40,6.85;' .. core.formspec_escape(colored_preview) .. ']')
-    table.insert(parts, 'label[4.40,7.40;' .. core.formspec_escape(subtitle) .. ']')
+    table.insert(parts, 'label[4.50,6.65;' .. core.formspec_escape(colored_preview) .. ']')
+    table.insert(parts, 'label[4.50,7.20;' .. core.formspec_escape(subtitle) .. ']')
 
     -- Footer Separator & Action Buttons
-    table.insert(parts, 'box[0,8.45;10.20,0.02;#2e3442]')
-    table.insert(parts, 'button[0.50,8.70;3.00,0.80;save;' .. core.formspec_escape(S('Save Inscription')) .. ']')
+    table.insert(parts, 'box[0,8.25;10.20,0.02;#2e3442]')
+    table.insert(parts, 'button[0.50,8.50;3.00,0.80;save;' .. core.formspec_escape(S('Save Inscription')) .. ']')
     table.insert(parts, 'tooltip[save;' .. core.formspec_escape(S('Save inscription and plaque style')) .. ']')
 
-    table.insert(parts, 'button[3.80,8.70;2.40,0.80;erase;' .. core.formspec_escape(S('Erase')) .. ']')
+    table.insert(parts, 'button[3.80,8.50;2.40,0.80;erase;' .. core.formspec_escape(S('Erase')) .. ']')
     table.insert(parts, 'tooltip[erase;' .. core.formspec_escape(S('Clear existing inscription')) .. ']')
 
-    table.insert(parts, 'button_exit[7.30,8.70;2.40,0.80;cancel;' .. core.formspec_escape(S('Cancel')) .. ']')
+    table.insert(parts, 'button_exit[7.30,8.50;2.40,0.80;cancel;' .. core.formspec_escape(S('Cancel')) .. ']')
     table.insert(parts, 'tooltip[cancel;' .. core.formspec_escape(S('Discard changes and close')) .. ']')
 
     return table.concat(parts)

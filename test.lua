@@ -4064,56 +4064,81 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     -- Verify latest formspec version 6 and modern styled layout
     local fs = _G.last_shown_formspec.formspec
     assert(fs:find('formspec_version%[6%]'), 'Formspec must use formspec_version[6]')
-    assert(fs:find('size%[10.2,9.8%]'), 'Formspec size must be 10.2x9.8')
+    assert(fs:find('size%[10.2,9.6%]'), 'Formspec size must be 10.2x9.6')
     assert(fs:find('image%[0.40,0.22;0.50,0.50;waysigns_marker.png%]'), 'Header missing marker icon')
     assert(fs:find('button_exit%[9.40,0.20;0.55,0.55;close_btn;✕%]'), 'Top-right "X" close button missing or not button_exit')
-    assert(fs:find('textarea%[0.50,1.65;9.20,2.00;inscription;;%]'), 'Formspec missing modern textarea')
-    assert(fs:find('image_button%[0.50,4.30;1.00,1.00;.-;plaque_sel_default;%]'), 'Default plaque thumbnail swatch missing')
-    assert(fs:find('image_button%[1.68,4.30;1.00,1.00;waysigns_sign_wood.png;plaque_sel_wood;%]'), 'Wood plaque thumbnail swatch missing')
-    assert(fs:find('image_button%[2.86,4.30;1.00,1.00;waysigns_sign_steel.png;plaque_sel_steel;%]'), 'Steel plaque thumbnail swatch missing')
-    assert(fs:find('dropdown%[7.65,4.40;2.05,0.80;plaque;.-;true%]'), 'Plaque dropdown must support index_event=true')
-    assert(fs:find('dropdown%[0.50,6.05;3.20,0.80;color;.-;true%]'), 'Color dropdown must support index_event=true')
-    assert(fs:find('Live Plaque Preview:'), 'Live plaque preview card missing')
-    assert(fs:find('button_exit%[7.30,8.70;2.40,0.80;cancel;Cancel%]'), 'Cancel button must be button_exit to close dialog')
+    assert(fs:find('label%[8.20,1.35;'), 'Formspec missing character counter label')
+    assert(fs:find('0 / 250 chars'), 'Live character counter must display initial 0 / 250 chars')
+    assert(fs:find('textarea%[0.50,1.65;9.20,1.85;inscription;;%]'), 'Formspec missing modern textarea')
+    assert(fs:find('image_button%[0.50,4.10;1.30,1.05;.-;plaque_sel_default;%]'), 'Default plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[2.08,4.10;1.30,1.05;waysigns_sign_wood.png;plaque_sel_wood;%]'), 'Wood plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[3.66,4.10;1.30,1.05;waysigns_sign_steel.png;plaque_sel_steel;%]'), 'Steel plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[5.24,4.10;1.30,1.05;waysigns_sign_slate.png;plaque_sel_slate;%]'), 'Slate plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[6.82,4.10;1.30,1.05;waysigns_sign_gold.png;plaque_sel_gold;%]'), 'Gold plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[8.40,4.10;1.30,1.05;waysigns_sign_glass.png;plaque_sel_glass;%]'), 'Glass plaque thumbnail swatch missing')
 
-    -- 4. Test interactive plaque thumbnail click (updates preview and golden halo)
+    -- Plaque and color dropdowns must be completely removed in favor of thumbnails
+    assert(not fs:find('dropdown%['), 'Dropdowns must be removed from the formspec')
+
+    -- Color swatches must use dynamic [fill:32x32:<hex> image_button textures instead of grey buttons
+    assert(fs:find('image_button%[0.50,5.95;0.95,0.90;%[fill:32x32:#FFFFFF;color_sel_white;%]'), 'White color swatch with [fill:32x32: missing')
+    assert(fs:find('image_button%[1.65,5.95;0.95,0.90;%[fill:32x32:#FFD700;color_sel_gold;%]'), 'Gold color swatch with [fill:32x32: missing')
+    assert(fs:find('image_button%[2.80,5.95;0.95,0.90;%[fill:32x32:#00E5FF;color_sel_cyan;%]'), 'Cyan color swatch with [fill:32x32: missing')
+    assert(fs:find('image_button%[0.50,7.00;0.95,0.90;%[fill:32x32:#76FF03;color_sel_green;%]'), 'Green color swatch with [fill:32x32: missing')
+    assert(fs:find('image_button%[1.65,7.00;0.95,0.90;%[fill:32x32:#FF5252;color_sel_red;%]'), 'Red color swatch with [fill:32x32: missing')
+    assert(fs:find('image_button%[2.80,7.00;0.95,0.90;%[fill:32x32:#222222;color_sel_dark;%]'), 'Dark walnut color swatch with [fill:32x32: missing')
+
+    assert(fs:find('Live Plaque Preview:'), 'Live plaque preview card missing')
+    assert(fs:find('button_exit%[7.30,8.50;2.40,0.80;cancel;Cancel%]'), 'Cancel button must be button_exit to close dialog')
+
+    -- 4. Test interactive plaque thumbnail click (updates preview, character counter, and golden halo)
     local receive_cb = core.registered_on_player_receive_fields[1]
     assert(receive_cb ~= nil, 'receive_fields callback must be registered')
     receive_cb(owner_player, 'waysigns:inscribe', { plaque_sel_steel = '', inscription = 'Fortress Guard' })
     local updated_fs = _G.last_shown_formspec.formspec
-    assert(updated_fs:find('box%[2.81,4.25;1.10,1.10;#ffd700%]'), 'Steel swatch must have golden halo when selected')
-    assert(updated_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_steel.png%]'), 'Live preview must display steel plaque texture')
+    assert(updated_fs:find('box%[3.61,4.05;1.40,1.15;#ffd700%]'), 'Steel swatch must have golden halo when selected')
+    assert(updated_fs:find('image%[4.30,6.05;5.30,1.80;waysigns_sign_steel.png%]'), 'Live preview must display steel plaque texture')
     assert(updated_fs:find('Fortress Guard'), 'Live preview must display updated inscription text')
+    assert(updated_fs:find('14 / 250 chars'), 'Live character counter must update to 14 / 250 chars')
 
-    -- 4b. Test color dropdown change updates preview color immediately (label and index event)
-    receive_cb(owner_player, 'waysigns:inscribe', { color = 'Lime Green' })
-    local color_fs = _G.last_shown_formspec.formspec
-    assert(color_fs:find('c@#76FF03%)Fortress Guard'), 'Live preview text must update to Lime Green (#76FF03)')
-    assert(color_fs:find('box%[2.08,7.11;0.52,0.52;#ffd700%]'), 'Lime green color swatch must have golden halo')
+    -- 4b. Test color swatch click updates preview color and golden halo immediately
+    receive_cb(owner_player, 'waysigns:inscribe', { color_sel_green = '' })
+    local green_fs = _G.last_shown_formspec.formspec
+    assert(green_fs:find('c@#76FF03%)Fortress Guard'), 'Live preview text must update to Lime Green (#76FF03)')
+    assert(green_fs:find('box%[0.46,6.96;1.05,0.98;#ffd700%]'), 'Lime green color swatch must have golden halo')
 
-    -- 4c. Test color palette swatch click updates preview color immediately
+    -- 4c. Test color palette swatch click (Cyan)
     receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '' })
     local cyan_fs = _G.last_shown_formspec.formspec
     assert(cyan_fs:find('c@#00E5FF%)Fortress Guard'), 'Live preview text must update to Cyan (#00E5FF)')
-    assert(cyan_fs:find('box%[1.54,7.11;0.52,0.52;#ffd700%]'), 'Cyan color swatch must have golden halo')
+    assert(cyan_fs:find('box%[2.76,5.91;1.05,0.98;#ffd700%]'), 'Cyan color swatch must have golden halo')
 
-    -- 4d. Test plaque dropdown change updates preview plaque texture immediately (label, index event, and CHG: prefix)
-    receive_cb(owner_player, 'waysigns:inscribe', { plaque = 'Gold / Brass' })
+    -- 4d. Test gold plaque thumbnail swatch click
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque_sel_gold = '' })
     local gold_plaque_fs = _G.last_shown_formspec.formspec
-    assert(gold_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_gold.png%]'), 'Live preview must update to Gold plaque texture via label')
-    assert(gold_plaque_fs:find('box%[5.17,4.25;1.10,1.10;#ffd700%]'), 'Gold swatch must have golden halo')
+    assert(gold_plaque_fs:find('image%[4.30,6.05;5.30,1.80;waysigns_sign_gold.png%]'), 'Live preview must update to Gold plaque texture')
+    assert(gold_plaque_fs:find('box%[6.77,4.05;1.40,1.15;#ffd700%]'), 'Gold swatch must have golden halo')
 
-    -- 4e. Test plaque dropdown index event selection (e.g. index 2 = Wood Plaque)
-    receive_cb(owner_player, 'waysigns:inscribe', { plaque = '2' })
+    -- 4e. Test wood plaque thumbnail swatch click
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque_sel_wood = '' })
     local wood_plaque_fs = _G.last_shown_formspec.formspec
-    assert(wood_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_wood.png%]'), 'Live preview must update to Wood plaque texture via index 2')
-    assert(wood_plaque_fs:find('box%[1.63,4.25;1.10,1.10;#ffd700%]'), 'Wood swatch must have golden halo')
+    assert(wood_plaque_fs:find('image%[4.30,6.05;5.30,1.80;waysigns_sign_wood.png%]'), 'Live preview must update to Wood plaque texture')
+    assert(wood_plaque_fs:find('box%[2.03,4.05;1.40,1.15;#ffd700%]'), 'Wood swatch must have golden halo')
 
-    -- 4f. Test plaque dropdown CHG: prefix event (e.g. CHG:6 = Frosted Glass)
-    receive_cb(owner_player, 'waysigns:inscribe', { plaque = 'CHG:6' })
+    -- 4f. Test frosted glass plaque thumbnail swatch click
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque_sel_glass = '' })
     local glass_plaque_fs = _G.last_shown_formspec.formspec
-    assert(glass_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_glass.png%]'), 'Live preview must update to Glass plaque texture via CHG:6')
-    assert(glass_plaque_fs:find('box%[6.35,4.25;1.10,1.10;#ffd700%]'), 'Glass swatch must have golden halo')
+    assert(glass_plaque_fs:find('image%[4.30,6.05;5.30,1.80;waysigns_sign_glass.png%]'), 'Live preview must update to Glass plaque texture')
+    assert(glass_plaque_fs:find('box%[8.35,4.05;1.40,1.15;#ffd700%]'), 'Glass swatch must have golden halo')
+
+    -- 4g. Test character counter warning (>= 90%) and exceeded (> max) colorization
+    receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '', inscription = string.rep('x', 225) })
+    local warn_fs = _G.last_shown_formspec.formspec
+    assert(warn_fs:find('c@#ffd700%)225 / 250 chars'), 'Counter must turn gold (#ffd700) when >= 90% max chars')
+
+    receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '', inscription = string.rep('x', 255) })
+    local exceed_fs = _G.last_shown_formspec.formspec
+    assert(exceed_fs:find('c@#ff5252%)255 / 250 chars'), 'Counter must turn red (#ff5252) when exceeding max chars')
 
     -- 5. Test Cancel button closes formspec
     _G.last_closed_formspec = nil
