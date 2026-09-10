@@ -4002,6 +4002,7 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     local marker_tool = core.registered_tools['waysigns:marker']
     assert(marker_tool ~= nil, 'waysigns:marker tool must be registered')
     assert(marker_tool.inventory_image == 'waysigns_marker.png', 'Marker inventory_image must be waysigns_marker.png')
+    assert(marker_tool.wield_image == 'waysigns_marker.png^[transformR90', 'Marker wield_image must be rotated 90 deg (^[transformR90)')
     assert(marker_tool.groups and marker_tool.groups.tool == 1, 'Marker must be in tool group')
 
     -- 2. Shapeless craft recipe registration

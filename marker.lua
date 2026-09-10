@@ -361,7 +361,7 @@ core.register_tool('waysigns:marker', {
     description = S('WaySigns Inscription Marker'),
     short_description = S('WaySigns Inscription Marker'),
     inventory_image = 'waysigns_marker.png',
-    wield_image = 'waysigns_marker.png',
+    wield_image = 'waysigns_marker.png^[transformR90',
     stack_max = 1,
     groups = { tool = 1 },
     on_place = function(itemstack, user, pointed_thing)
