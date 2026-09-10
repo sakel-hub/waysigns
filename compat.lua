@@ -1303,7 +1303,7 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
     end
 
     -- 3. Check player-bound inventory (e.g. x_obsidianmese:chest, enderchests)
-    if #item_order == 0 and player then
+    if #item_order == 0 and player and player.get_inventory then
         local pinv = player:get_inventory()
         if pinv and pinv.get_list then
             local plist = pinv:get_list(node.name) or pinv:get_list(base_name)

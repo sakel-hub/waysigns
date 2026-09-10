@@ -94,15 +94,25 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_quickview_show_all` | `true` | Display all occupied items in container up to maximum slots in a multi-row grid. |
 | `waysigns_quickview_respect_locks` | `true` | Respect container locks and protection (suppress private inventory contents for non-owners). |
 | `waysigns_enable_marker` | `true` | Enable the Inscription Marker tool (`waysigns:marker`) and craft recipe. |
-| `waysigns_marker_uses` | `100` | Number of inscription uses before the marker wears out (0 = infinite durability). |
 | `waysigns_enable_entity_inspection` | `true` | Allow WaySigns raycasting to detect marked entities and display floating waypoints. |
 | `waysigns_marker_max_chars` | `250` | Maximum character length allowed for custom marker inscriptions. |
+| `waysigns_marker_sense` | `true` | Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes/entities when wielding the marker tool. |
+| `waysigns_marker_sense_range` | `10.0` | Maximum detection radius in blocks (meters) when holding the marker tool. |
+| `waysigns_marker_sense_max` | `6` | Maximum simultaneous marker waypoint glyphs displayed at once around the player. |
 
 ---
 
 ## Inscription Marker (`waysigns:marker`)
 
 WaySigns provides a handcrafted writing tool—the **Inscription Marker**—allowing players to write custom in-world messages directly onto any solid node or entity (NPCs, statues, carts, mobs, or machinery). When pointed at, WaySigns renders a sleek 3D floating waypoint displaying your inscribed text on top of your chosen plaque style!
+
+### Scribe Sense (Marker-Wield Proximity Waypoints)
+When holding the **Inscription Marker** in your active hotbar slot, **Scribe Sense** awakens:
+- Small, unobtrusive 3D waypoint glyphs (`image_waypoint`) hover over all nearby inscribed nodes and entities within 10 meters.
+- Allows players and builders to instantly scan their surrounding base or town to see which chests, doors, nodes, or sentries have been inscribed.
+- **Direct Gaze Harmony**: When looking directly at an inscribed sign, its small marker waypoint automatically suppresses so the full plaque HUD takes center stage without visual clutter.
+- **Zero World Clutter**: When switching away from the marker to another tool, weapon, or empty hands, all waypoint glyphs instantly disappear, keeping the world 100% pristine during normal gameplay!
+- **Line-of-Sight Tested**: Waypoints only appear when you have clear line-of-sight to the inscribed target (no wall-hacking or clutter through solid terrain).
 
 ### Crafting Recipe
 The Inscription Marker is crafted via a shapeless recipe in any 2x2 or 3x3 crafting grid:
@@ -115,15 +125,10 @@ The Inscription Marker is crafted via a shapeless recipe in any 2x2 or 3x3 craft
 2. **Right-click** any node or entity within reaching distance.
 3. An interactive inscription dialog opens with:
    - **Target name**: Shows the node or entity being inscribed.
-   - **Multiline Text Field**: Enter your custom sign or waypoint text (up to 250 characters).
-   - **Plaque Style Dropdown**:
-     - *Default*: Uses the target node's own material texture, or classic wood for entities.
-     - *Wood Plaque*: Warm beveled walnut wood board.
-     - *Steel Plaque*: Polished riveted steel plate.
-     - *Slate Plaque*: Dark brushed slate stone tablet.
-     - *Gold Plaque*: Gilded royal brass/gold plaque.
-     - *Glass Plaque*: Translucent frosted glass backing.
-   - **Text Color Dropdown**: Choose between White, Radiant Gold, Cyan, Emerald Green, Coral Red, or Dark Charcoal text.
+   - **Multiline Text Field**: Enter your custom sign or waypoint text (up to 250 characters) with real-time live character counting.
+   - **Plaque Style Palette**: Select from Wood, Steel, Slate, Gold, or Frosted Glass.
+   - **Text Color Palette**: Choose between White, Radiant Gold, Cyan, Emerald Green, Coral Red, or Dark Charcoal text.
+   - **Interactive Live Preview**: Preview changes dynamically before saving.
 4. Click **Save Inscription** to apply the waypoint. Writing consumes 1 durability use (100 uses by default).
 5. Need to remove a message? Simply click **Erase Inscription** (consumes 0 durability).
 

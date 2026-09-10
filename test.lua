@@ -131,6 +131,30 @@ core = {
     get_player_window_information = function() return nil end,
     after = function(delay, func) func() end,
     get_node = function(pos) return {name = 'air', param1 = 0, param2 = 0} end,
+    _mod_storage_store = {},
+    get_mod_storage = function()
+        return {
+            get_string = function(self, key)
+                return core._mod_storage_store[key] or ''
+            end,
+            set_string = function(self, key, val)
+                core._mod_storage_store[key] = val
+            end,
+        }
+    end,
+    write_json = function(data)
+        core._mod_storage_store['__last_table__'] = data
+        return '{"valid":true}'
+    end,
+    parse_json = function(str)
+        return core._mod_storage_store['__last_table__'] or {}
+    end,
+    line_of_sight = function(pos1, pos2)
+        if core._line_of_sight_override ~= nil then
+            return core._line_of_sight_override
+        end
+        return true
+    end,
     strip_colors = function(str) return str:gsub('\x1b%(c@[^)]*%)', ''):gsub('\x1b%(b@[^)]*%)', '') end,
     strip_escapes = function(str) return str:gsub('\x1b%b()', ''):gsub('\x1bE', ''):gsub('\x1b(.)', ''):gsub('\x1b', '') end,
     colorize = function(color, str) return '\x1b(c@' .. color .. ')' .. tostring(str or '') .. '\x1b(c@#ffffff)' end,
@@ -228,6 +252,12 @@ vector = {
     dot = function(a, b) return (a.x * b.x) + (a.y * b.y) + (a.z * b.z) end,
     equals = function(a, b) return a and b and a.x == b.x and a.y == b.y and a.z == b.z end,
     round = function(p) return {x = math.floor(p.x + 0.5), y = math.floor(p.y + 0.5), z = math.floor(p.z + 0.5)} end,
+    distance = function(a, b)
+        local dx = a.x - b.x
+        local dy = a.y - b.y
+        local dz = a.z - b.z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+    end,
 }
 
 if not bit then
@@ -4293,7 +4323,175 @@ print('--- Test 66: Inscription erasing & zero durability consumption ---')
     print('PASS Test 66')
 end)()
 
-print('================ ALL 66 UNIT TESTS PASSED ================')
+print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
+;(function()
+    local orig_raycast = core.raycast
+    core.raycast = function() return function() return nil end end
+    local orig_get_objects = core.get_objects_inside_radius
+    core.get_objects_inside_radius = function(pos, r)
+        return _G.mock_objects or {}
+    end
+
+    -- 1. Spatial Registry persistence and key generation
+    local p1 = { x = 10, y = 5, z = 20 }
+    local k1 = waysigns.pos_to_key(p1)
+    assert(k1 == '10,5,20', 'Key format must be X,Y,Z integer coordinates, got: ' .. tostring(k1))
+
+    waysigns.register_inscribed_pos(p1, { author = 'alice', plaque = 'wood', color = 'gold' })
+    local entry = waysigns.get_inscribed_pos(p1)
+    assert(entry ~= nil, 'Entry must be in spatial registry')
+    assert(entry.plaque == 'wood' and entry.color == 'gold' and entry.author == 'alice', 'Entry metadata mismatch')
+
+    -- Persistence test: save and reload from mod storage
+    waysigns.save_inscribed_registry()
+    waysigns.inscribed_positions = {}
+    assert(waysigns.get_inscribed_pos(p1) == nil, 'Registry must be empty after reset')
+    waysigns.load_inscribed_registry()
+    assert(waysigns.get_inscribed_pos(p1) ~= nil, 'Registry must restore from mod storage')
+
+    -- 2. Dig node / destruction unregistration
+    waysigns.on_dignode(p1)
+    assert(waysigns.get_inscribed_pos(p1) == nil, 'on_dignode must unregister position from spatial index')
+
+    -- 3. Self-healing on get_node_inscription
+    local p2 = { x = 15, y = 2, z = 15 }
+    local meta2 = core.get_meta(p2)
+    meta2:set_string('waysigns_text', 'Ancient Relic')
+    meta2:set_string('waysigns_plaque', 'slate')
+    meta2:set_string('waysigns_color', 'cyan')
+    meta2:set_string('waysigns_author', 'bob')
+    assert(waysigns.get_inscribed_pos(p2) == nil, 'Initially not in spatial registry')
+    local insc = waysigns.get_node_inscription(p2)
+    assert(insc ~= nil and insc.text == 'Ancient Relic', 'Must return valid inscription')
+    assert(waysigns.get_inscribed_pos(p2) ~= nil, 'get_node_inscription must self-heal spatial registry')
+
+    -- 4. Proximity Waypoints Lifecycle & Marker Wield Detection
+    local sense_player = {
+        name = 'sense_tester',
+        pos = { x = 15, y = 2, z = 10 }, -- 5m away from p2 (15, 2, 15)
+        look_dir = { x = 0, y = 0, z = 1 },
+        wielded = ItemStack({ name = 'default:pick_steel', count = 1 }),
+        hud_adds = {},
+        hud_removes = {},
+        hud_changes = {},
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        is_valid = function(self) return true end,
+        get_pos = function(self) return self.pos end,
+        get_look_dir = function(self) return self.look_dir end,
+        get_properties = function(self) return { eye_height = 1.625 } end,
+        get_wielded_item = function(self) return self.wielded end,
+        hud_add = function(self, def)
+            table.insert(self.hud_adds, def)
+            return #self.hud_adds
+        end,
+        hud_remove = function(self, id)
+            table.insert(self.hud_removes, id)
+        end,
+        hud_change = function(self, id, stat, val)
+            table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+        end,
+    }
+
+    -- Far-away node at (100, 2, 100)
+    local p_far = { x = 100, y = 2, z = 100 }
+    waysigns.set_node_inscription(p_far, 'Far away temple', 'gold', 'white', 'monk')
+
+    -- Nearby inscribed entity at (17, 2, 12) (distance ~3m from player)
+    local luaent_table = { name = 'npc:trader' }
+    local mock_ent = {
+        _is_valid = true,
+        _pos = { x = 17, y = 2, z = 12 },
+        is_player = function(self) return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function(self) return {} end,
+        set_properties = function(self, _) end,
+        get_luaentity = function(self) return luaent_table end,
+    }
+    waysigns.set_entity_inscription(mock_ent, 'Trader Joe', 'wood', 'gold', 'admin')
+    _G.mock_objects = { mock_ent }
+
+    local pstate = waysigns.get_or_create_player_state(sense_player)
+
+    -- Case 4A: Player wields pickaxe (not marker) -> NO waypoints should be created
+    waysigns.update_player(sense_player, 0.2)
+    assert(#sense_player.hud_adds == 0, 'No waypoints should be added when wielding pickaxe')
+    assert(next(pstate.marker_waypoints) == nil, 'marker_waypoints table must be empty')
+
+    -- Case 4B: Player equips waysigns:marker -> Proximity waypoints appear
+    sense_player.wielded = ItemStack({ name = 'waysigns:marker', count = 1 })
+    waysigns.update_player(sense_player, 0.2)
+
+    assert(#sense_player.hud_adds >= 2, 'Must create waypoints for nearby node and nearby entity, got adds: ' .. #sense_player.hud_adds)
+    local wp_node = pstate.marker_waypoints['15,2,15']
+    assert(wp_node ~= nil, 'Waypoint for nearby node must exist')
+    assert(sense_player.hud_adds[wp_node.hud_id].type == 'image_waypoint', 'HUD type must be image_waypoint')
+    assert(sense_player.hud_adds[wp_node.hud_id].text == 'waysigns_marker.png^[resize:24x24', 'Must use 24x24 marker icon')
+    assert(sense_player.hud_adds[wp_node.hud_id].z_index == -250, 'Must have z_index -250')
+
+    -- Far-away node must NOT have a waypoint
+    assert(pstate.marker_waypoints['100,2,100'] == nil, 'Far-away node must not be in waypoints')
+
+    -- Nearby entity must have a waypoint
+    local ent_key = 'ent_' .. tostring(mock_ent)
+    assert(pstate.marker_waypoints[ent_key] ~= nil, 'Entity waypoint must exist')
+
+    -- Case 4C: Direct Gaze Suppression (when player aims directly at the sign)
+    pstate.is_visible = true
+    pstate.current_sign_pos = { x = 15, y = 2, z = 15 }
+    waysigns.update_marker_waypoints(sense_player, pstate)
+
+    -- Node waypoint should be suppressed so full plaque HUD takes center stage!
+    assert(pstate.marker_waypoints['15,2,15'] == nil, 'Waypoint must be suppressed when looking directly at sign')
+    -- Entity waypoint remains
+    assert(pstate.marker_waypoints[ent_key] ~= nil, 'Entity waypoint should still remain visible')
+
+    -- Stop looking directly at sign
+    pstate.is_visible = false
+    pstate.current_sign_pos = nil
+    waysigns.update_marker_waypoints(sense_player, pstate)
+    assert(pstate.marker_waypoints['15,2,15'] ~= nil, 'Waypoint restored after looking away')
+
+    -- Case 4D: Line of sight obstruction
+    core._line_of_sight_override = false
+    waysigns.update_marker_waypoints(sense_player, pstate)
+    assert(next(pstate.marker_waypoints) == nil, 'All waypoints must be suppressed when line of sight is blocked')
+    core._line_of_sight_override = nil
+
+    -- Restore waypoints with line of sight clear
+    waysigns.update_marker_waypoints(sense_player, pstate)
+    assert(pstate.marker_waypoints['15,2,15'] ~= nil, 'Waypoint restored with line of sight clear')
+
+    -- Case 4E: Switching away from marker -> instant cleanup
+    sense_player.wielded = ItemStack({ name = 'default:sword_diamond', count = 1 })
+    local removes_before = #sense_player.hud_removes
+    waysigns.update_player(sense_player, 0.2)
+    assert(#sense_player.hud_removes > removes_before, 'Switching away from marker must remove HUD waypoints')
+    assert(next(pstate.marker_waypoints) == nil, 'marker_waypoints must be empty after switching away')
+
+    -- Case 4F: Death / Disconnect cleanup
+    sense_player.wielded = ItemStack({ name = 'waysigns:marker', count = 1 })
+    waysigns.update_player(sense_player, 0.2)
+    assert(next(pstate.marker_waypoints) ~= nil, 'Waypoints active before death')
+
+    waysigns.on_dieplayer(sense_player)
+    assert(next(pstate.marker_waypoints) == nil, 'on_dieplayer must remove all marker waypoints')
+
+    waysigns.update_player(sense_player, 0.2)
+    assert(next(pstate.marker_waypoints) ~= nil, 'Waypoints active before leave')
+
+    waysigns.on_leaveplayer(sense_player)
+    assert(waysigns.players['sense_tester'] == nil, 'Player state must be nil after on_leaveplayer')
+
+    _G.mock_objects = nil
+    core.raycast = orig_raycast
+    core.get_objects_inside_radius = orig_get_objects
+    print('PASS Test 67')
+end)()
+
+print('================ ALL 67 UNIT TESTS PASSED ================')
+
 
 
 

@@ -78,6 +78,9 @@ waysigns = {
         marker_uses = math.max(0, tonumber(core.settings:get('waysigns_marker_uses')) or 100),
         enable_entity_inspection = core.settings:get_bool('waysigns_enable_entity_inspection', true),
         marker_max_chars = math.max(10, math.min(1000, tonumber(core.settings:get('waysigns_marker_max_chars')) or 250)),
+        marker_sense = core.settings:get_bool('waysigns_marker_sense', true),
+        marker_sense_range = math.max(2.0, math.min(30.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),
+        marker_sense_max = math.max(1, math.min(20, tonumber(core.settings:get('waysigns_marker_sense_max')) or 6)),
     },
     registered_signs = {},
     custom_resolvers = {},
@@ -266,6 +269,83 @@ function waysigns.invalidate_cache(pos)
         waysigns.node_cache[hash] = nil
         node_cache_count = math.max(0, node_cache_count - 1)
     end
+end
+
+---@type table<string, { pos: Vector, author: string, plaque: string, color: string }>
+waysigns.inscribed_positions = {}
+
+---Convert a 3D position vector into a standardized string coordinate key "X,Y,Z"
+---@param pos Vector 3D position vector
+---@return string|nil key Integer coordinate key string, or nil if invalid
+function waysigns.pos_to_key(pos)
+    if not pos then return nil end
+    local r = vector.round(pos)
+    return string.format('%d,%d,%d', r.x, r.y, r.z)
+end
+
+---Register an inscribed node position in the spatial registry
+---@param pos Vector Node position
+---@param data table Inscription metadata (author, plaque, color)
+function waysigns.register_inscribed_pos(pos, data)
+    local key = waysigns.pos_to_key(pos)
+    if not key then return end
+    local r = vector.round(pos)
+    waysigns.inscribed_positions[key] = {
+        pos = { x = r.x, y = r.y, z = r.z },
+        author = (data and data.author) or '',
+        plaque = (data and data.plaque) or 'default',
+        color = (data and data.color) or 'white',
+    }
+    waysigns.save_inscribed_registry()
+end
+
+---Unregister an inscribed node position from the spatial registry
+---@param pos Vector Node position
+function waysigns.unregister_inscribed_pos(pos)
+    local key = waysigns.pos_to_key(pos)
+    if not key then return end
+    if waysigns.inscribed_positions[key] then
+        waysigns.inscribed_positions[key] = nil
+        waysigns.save_inscribed_registry()
+    end
+end
+
+---Get registered inscription data for a position
+---@param pos Vector Node position
+---@return table|nil data Registered inscription data or nil
+function waysigns.get_inscribed_pos(pos)
+    local key = waysigns.pos_to_key(pos)
+    return key and waysigns.inscribed_positions[key]
+end
+
+---Load registered inscribed positions from mod storage
+function waysigns.load_inscribed_registry()
+    local storage = core.get_mod_storage and core.get_mod_storage()
+    if not storage then return end
+    local raw = storage:get_string('inscribed_positions')
+    if raw and raw ~= '' then
+        local ok, data = pcall(core.parse_json, raw)
+        if ok and type(data) == 'table' then
+            waysigns.inscribed_positions = data
+        end
+    end
+end
+
+---Save registered inscribed positions to mod storage
+function waysigns.save_inscribed_registry()
+    local storage = core.get_mod_storage and core.get_mod_storage()
+    if not storage then return end
+    local ok, json = pcall(core.write_json, waysigns.inscribed_positions)
+    if ok and json then
+        storage:set_string('inscribed_positions', json)
+    end
+end
+
+---Handle node destruction for inscribed position unregistration and cache invalidation
+---@param pos Vector 3D position where node was dug
+function waysigns.on_dignode(pos)
+    waysigns.invalidate_cache(pos)
+    waysigns.unregister_inscribed_pos(pos)
 end
 
 ---Strip all engine escape sequences (\x1b...) including colors, translations, and formatting
@@ -961,6 +1041,8 @@ function waysigns.get_or_create_player_state(player)
             eye_height = (player.get_properties and player:get_properties().eye_height) or 1.625,
             scratch_eye_pos = { x = 0, y = 0, z = 0 },
             scratch_ray_end = { x = 0, y = 0, z = 0 },
+            marker_waypoints = {},
+            marker_sense_timer = 0,
         }
     end
     return waysigns.players[name]
@@ -1545,6 +1627,155 @@ function waysigns.hide_hud(player)
     state.target_opacity = 0.0
 end
 
+---Remove all active marker-wield proximity waypoint HUD elements for a player
+---@param player ObjectRef Target player
+---@param state WaySignsPlayerState Player state table
+function waysigns.remove_marker_waypoints(player, state)
+    if not state or not state.marker_waypoints then
+        return
+    end
+    for _, wp in pairs(state.marker_waypoints) do
+        if wp.hud_id then
+            player:hud_remove(wp.hud_id)
+        end
+    end
+    state.marker_waypoints = {}
+end
+
+---Update 3D proximity HUD waypoint glyphs over nearby inscribed nodes and entities while holding the marker tool
+---@param player ObjectRef Player holding the marker
+---@param state WaySignsPlayerState Player state table
+function waysigns.update_marker_waypoints(player, state)
+    if not player or not state then
+        return
+    end
+
+    local player_pos = player:get_pos()
+    if not player_pos then
+        waysigns.remove_marker_waypoints(player, state)
+        return
+    end
+
+    local eye_height = state.eye_height or 1.625
+    local eye_pos = { x = player_pos.x, y = player_pos.y + eye_height, z = player_pos.z }
+    local sense_range = waysigns.settings.marker_sense_range or 10.0
+    local max_waypoints = waysigns.settings.marker_sense_max or 6
+
+    local candidates = {}
+
+    -- 1. Check registered inscribed nodes
+    for key, item in pairs(waysigns.inscribed_positions) do
+        local dx = player_pos.x - item.pos.x
+        local dy = player_pos.y - item.pos.y
+        local dz = player_pos.z - item.pos.z
+        local dist_sq = dx * dx + dy * dy + dz * dz
+        if dist_sq <= (sense_range * sense_range) then
+            -- If player is looking directly at this sign and full plaque HUD is visible, suppress glyph
+            local is_pointed = state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, item.pos)
+            if not is_pointed then
+                local target_pos = { x = item.pos.x, y = item.pos.y + 0.65, z = item.pos.z }
+                local los = true
+                if core.line_of_sight then
+                    los = core.line_of_sight(eye_pos, target_pos)
+                end
+                if los then
+                    table.insert(candidates, {
+                        key = key,
+                        pos = target_pos,
+                        dist = math.sqrt(dist_sq),
+                        is_entity = false,
+                    })
+                end
+            end
+        end
+    end
+
+    -- 2. Check nearby inscribed entities (if entity inspection enabled)
+    if waysigns.settings.enable_entity_inspection and core.get_objects_inside_radius then
+        local nearby_objs = core.get_objects_inside_radius(player_pos, sense_range)
+        for _, obj in ipairs(nearby_objs) do
+            if obj and (not obj.is_player or not obj:is_player()) then
+                local ent_data = waysigns.get_entity_inscription and waysigns.get_entity_inscription(obj)
+                if ent_data and ent_data.text and ent_data.text ~= '' then
+                    local obj_pos = obj:get_pos()
+                    if obj_pos then
+                        local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
+                        if not is_pointed then
+                            local target_pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z }
+                            local dx = player_pos.x - obj_pos.x
+                            local dy = player_pos.y - obj_pos.y
+                            local dz = player_pos.z - obj_pos.z
+                            local dist_sq = dx * dx + dy * dy + dz * dz
+                            if dist_sq <= (sense_range * sense_range) then
+                                local los = true
+                                if core.line_of_sight then
+                                    los = core.line_of_sight(eye_pos, target_pos)
+                                end
+                                if los then
+                                    local ent_key = 'ent_' .. tostring(obj)
+                                    table.insert(candidates, {
+                                        key = ent_key,
+                                        pos = target_pos,
+                                        dist = math.sqrt(dist_sq),
+                                        is_entity = true,
+                                    })
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 3. Sort by distance ascending and keep top max_waypoints
+    table.sort(candidates, function(a, b)
+        return a.dist < b.dist
+    end)
+
+    local active_keys = {}
+    local count = math.min(#candidates, max_waypoints)
+
+    state.marker_waypoints = state.marker_waypoints or {}
+
+    for i = 1, count do
+        local cand = candidates[i]
+        active_keys[cand.key] = true
+        local existing = state.marker_waypoints[cand.key]
+        if existing then
+            if not vector.equals(existing.pos, cand.pos) then
+                player:hud_change(existing.hud_id, 'world_pos', cand.pos)
+                existing.pos = cand.pos
+            end
+        else
+            local hud_id = player:hud_add({
+                type = 'image_waypoint',
+                world_pos = cand.pos,
+                scale = { x = 1, y = 1 },
+                text = 'waysigns_marker.png^[resize:24x24',
+                alignment = { x = 0, y = 0 },
+                offset = { x = 0, y = 0 },
+                z_index = -250,
+            })
+            state.marker_waypoints[cand.key] = {
+                hud_id = hud_id,
+                pos = cand.pos,
+                is_entity = cand.is_entity,
+            }
+        end
+    end
+
+    -- 4. Remove waypoints that are no longer active
+    for k, wp in pairs(state.marker_waypoints) do
+        if not active_keys[k] then
+            if wp.hud_id then
+                player:hud_remove(wp.hud_id)
+            end
+            state.marker_waypoints[k] = nil
+        end
+    end
+end
+
 ---Main player update tick: raycasts signs, checks distances, and drives smooth animations
 ---@param player ObjectRef Connected player to update
 ---@param dtime number Delta time in seconds since last tick
@@ -1557,8 +1788,10 @@ function waysigns.update_player(player, dtime)
             if state.is_visible or state.hud_bg_id or (state.opacity and state.opacity > 0) then
                 waysigns.remove_all_huds(player)
             end
+            waysigns.remove_marker_waypoints(player, state)
             state.check_timer = 0
             state.page_timer = 0
+            state.marker_sense_timer = 0
         end
         return
     end
@@ -1723,6 +1956,23 @@ function waysigns.update_player(player, dtime)
             end
         end
     end
+
+    -- 4. Marker Sense: Proximity waypoints when wielding waysigns:marker
+    if waysigns.settings.marker_sense then
+        state.marker_sense_timer = (state.marker_sense_timer or 0) + dtime
+        if state.marker_sense_timer >= 0.15 then
+            state.marker_sense_timer = 0
+            local wielded_item = player.get_wielded_item and player:get_wielded_item()
+            local item_name = wielded_item and wielded_item:get_name()
+            if item_name == 'waysigns:marker' then
+                waysigns.update_marker_waypoints(player, state)
+            elseif state.marker_waypoints and next(state.marker_waypoints) then
+                waysigns.remove_marker_waypoints(player, state)
+            end
+        end
+    elseif state.marker_waypoints and next(state.marker_waypoints) then
+        waysigns.remove_marker_waypoints(player, state)
+    end
 end
 
 ---Main globalstep callback updating sign raycasting and HUD transitions for all connected players
@@ -1747,8 +1997,12 @@ end
 ---Clean up player state and remove all active HUD elements on player disconnect
 ---@param player ObjectRef Disconnecting player reference
 function waysigns.on_leaveplayer(player)
-    waysigns.remove_all_huds(player)
     local name = player:get_player_name()
+    local state = name and waysigns.players[name]
+    if state then
+        waysigns.remove_marker_waypoints(player, state)
+    end
+    waysigns.remove_all_huds(player)
     waysigns.players[name] = nil
 end
 
@@ -1759,8 +2013,10 @@ function waysigns.on_dieplayer(player)
     local name = player and player:get_player_name()
     local state = name and waysigns.players[name]
     if state then
+        waysigns.remove_marker_waypoints(player, state)
         state.check_timer = 0
         state.page_timer = 0
+        state.marker_sense_timer = 0
     end
 end
 
@@ -1780,6 +2036,7 @@ function waysigns.set_node_inscription(pos, text, plaque, color, player_name)
         meta:set_string('waysigns_plaque', '')
         meta:set_string('waysigns_color', '')
         meta:set_string('waysigns_author', '')
+        waysigns.unregister_inscribed_pos(pos)
     else
         meta:set_string('waysigns_text', text)
         meta:set_string('waysigns_plaque', plaque or 'default')
@@ -1787,6 +2044,11 @@ function waysigns.set_node_inscription(pos, text, plaque, color, player_name)
         if player_name and player_name ~= '' then
             meta:set_string('waysigns_author', player_name)
         end
+        waysigns.register_inscribed_pos(pos, {
+            author = player_name or '',
+            plaque = plaque or 'default',
+            color = color or 'white',
+        })
     end
     waysigns.invalidate_cache(pos)
     return true
@@ -1801,11 +2063,21 @@ function waysigns.get_node_inscription(pos)
     if not meta then return nil end
     local text = meta:get_string('waysigns_text')
     if not text or text == '' then return nil end
+    local plaque = meta:get_string('waysigns_plaque') or 'default'
+    local color = meta:get_string('waysigns_color') or 'white'
+    local author = meta:get_string('waysigns_author')
+    if not waysigns.get_inscribed_pos(pos) then
+        waysigns.register_inscribed_pos(pos, {
+            author = author or '',
+            plaque = plaque,
+            color = color,
+        })
+    end
     return {
         text = text,
-        plaque = meta:get_string('waysigns_plaque') or 'default',
-        color = meta:get_string('waysigns_color') or 'white',
-        author = meta:get_string('waysigns_author'),
+        plaque = plaque,
+        color = color,
+        author = author,
     }
 end
 
@@ -1859,3 +2131,5 @@ function waysigns.get_entity_inscription(object)
     }
 end
 
+-- Load persistent inscribed registry on startup
+waysigns.load_inscribed_registry()

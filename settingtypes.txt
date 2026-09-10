@@ -95,3 +95,12 @@ waysigns_enable_entity_inspection (Enable Entity Inscription Inspection) bool tr
 
 # Maximum characters allowed per inscription when writing with the marker tool.
 waysigns_marker_max_chars (Marker Inscription Max Characters) int 250 10 1000
+
+# Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes and entities when holding the marker tool.
+waysigns_marker_sense (Enable Marker Proximity Sense) bool true
+
+# Maximum detection radius in blocks (meters) when holding the marker tool to detect inscriptions.
+waysigns_marker_sense_range (Marker Detection Radius) float 10.0 4.0 25.0
+
+# Maximum simultaneous marker waypoint glyphs displayed at once around the player.
+waysigns_marker_sense_max (Max Simultaneous Marker Waypoints) int 6 1 15

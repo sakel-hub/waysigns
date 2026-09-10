@@ -32,6 +32,6 @@ core.register_on_dieplayer(waysigns.on_dieplayer)
 
 -- Cache invalidation hooks on sign modification or destruction
 core.register_on_punchnode(waysigns.invalidate_cache)
-core.register_on_dignode(waysigns.invalidate_cache)
+core.register_on_dignode(waysigns.on_dignode)
 core.register_on_placenode(waysigns.invalidate_cache)
 
