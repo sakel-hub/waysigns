@@ -5217,7 +5217,41 @@ end)()
     print('PASS Test 71')
 end)()
 
--- [Test 72 deferred to corner rivets refactor]
+--- Test 72: Decorative beveled frame in get_background_texture (No corner rivets)
+;(function()
+    print('--- Test 72: Decorative beveled frame in get_background_texture (No corner rivets) ---')
+    waysigns.clear_caches()
+    waysigns.settings.show_frame = true
+
+    -- Width 440, Height 314
+    local frame_tex = waysigns.get_background_texture('default_wood.png', 440, 314, 1.0, false, false, false, false, nil)
+    assert(frame_tex ~= nil, 'Must return background texture')
+    assert(frame_tex:find('waysigns_frame_vignette%.png%^%[resize:440x314'),
+        'Frame vignette must be applied when show_frame is enabled')
+    assert(not frame_tex:find('waysigns_corner'),
+        'Corner rivets must not be present in background texture')
+
+    -- Disabled show_frame
+    waysigns.clear_caches()
+    waysigns.settings.show_frame = false
+    local no_frame_tex = waysigns.get_background_texture('default_wood.png', 440, 314, 1.0, false, false, false, false, nil)
+    assert(not no_frame_tex:find('waysigns_frame_vignette'),
+        'Frame vignette must not be present when show_frame is false')
+    assert(not no_frame_tex:find('waysigns_corner'),
+        'Corner rivets must not be present when show_frame is false')
+
+    -- Light background (vignette suppressed to avoid muddying light plaque)
+    waysigns.clear_caches()
+    waysigns.settings.show_frame = true
+    local light_frame_tex = waysigns.get_background_texture('default_wood.png', 440, 314, 1.0, false, true, false, false, nil)
+    assert(not light_frame_tex:find('waysigns_frame_vignette'),
+        'Frame vignette must be suppressed on light backgrounds')
+    assert(not light_frame_tex:find('waysigns_corner'),
+        'Corner rivets must not be present on light backgrounds')
+
+    waysigns.settings.show_frame = true
+    print('PASS Test 72')
+end)()
 
 --- Test 73: UTF-8 character length counting in marker formspec
 ;(function()
@@ -5892,7 +5926,7 @@ end)()
 
 -- [Test 84 deferred to owner color feature]
 
-print('================ ALL 82 UNIT TESTS PASSED ================')
+print('================ ALL 83 UNIT TESTS PASSED ================')
 
 
 

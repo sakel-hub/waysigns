@@ -1069,24 +1069,9 @@ function waysigns.get_background_texture(base_tile, width, height, alpha, is_met
     end
 
     local full_texture = base_layer
-    if waysigns.settings.show_frame then
+    if waysigns.settings.show_frame and not is_light_bg then
         local vignette_layer = 'waysigns_frame_vignette.png^[resize:' .. w .. 'x' .. h
-        local corner_inset = math.min(14, math.max(2, math.floor(3 * (waysigns.settings.hud_scale or 2.0))))
-        local right_x = math.max(corner_inset + 8, w - 8 - corner_inset)
-        local bottom_y = math.max(corner_inset + 8, h - 8 - corner_inset)
-        local corners_layer = table.concat({
-            '[combine:', w, 'x', h,
-            ':', corner_inset, ',', corner_inset, '=waysigns_corner.png',
-            ':', right_x, ',', corner_inset, '=waysigns_corner.png',
-            ':', corner_inset, ',', bottom_y, '=waysigns_corner.png',
-            ':', right_x, ',', bottom_y, '=waysigns_corner.png'
-        }, '')
-
-        if is_light_bg then
-            full_texture = '(' .. base_layer .. '^' .. corners_layer .. ')'
-        else
-            full_texture = '(' .. base_layer .. '^' .. vignette_layer .. '^' .. corners_layer .. ')'
-        end
+        full_texture = '(' .. base_layer .. '^' .. vignette_layer .. ')'
     end
 
     if quickview_items and #quickview_items > 0 then
