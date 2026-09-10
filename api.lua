@@ -2364,10 +2364,12 @@ function waysigns.set_entity_inscription(object, text, plaque, color, player_nam
         lua_ent._waysigns_color = has_text and (color or 'white') or nil
         lua_ent._waysigns_author = (has_text and player_name and player_name ~= '') and player_name or nil
     end
-    rawset(object, '_waysigns_text', has_text and text or nil)
-    rawset(object, '_waysigns_plaque', has_text and (plaque or 'default') or nil)
-    rawset(object, '_waysigns_color', has_text and (color or 'white') or nil)
-    rawset(object, '_waysigns_author', (has_text and player_name and player_name ~= '') and player_name or nil)
+    if type(object) == 'table' then
+        rawset(object, '_waysigns_text', has_text and text or nil)
+        rawset(object, '_waysigns_plaque', has_text and (plaque or 'default') or nil)
+        rawset(object, '_waysigns_color', has_text and (color or 'white') or nil)
+        rawset(object, '_waysigns_author', (has_text and player_name and player_name ~= '') and player_name or nil)
+    end
 
     object:set_properties({
         infotext = text or '',
@@ -2381,7 +2383,7 @@ end
 function waysigns.get_entity_inscription(object)
     if not object then return nil end
     local lua_ent = object:get_luaentity()
-    local text = (lua_ent and lua_ent._waysigns_text) or object._waysigns_text
+    local text = (lua_ent and lua_ent._waysigns_text) or (type(object) == 'table' and object._waysigns_text) or nil
     if not text or text == '' then
         local props = object:get_properties()
         text = props and props.infotext
@@ -2389,9 +2391,9 @@ function waysigns.get_entity_inscription(object)
     if not text or text == '' then return nil end
     return {
         text = text,
-        plaque = (lua_ent and lua_ent._waysigns_plaque) or object._waysigns_plaque or 'default',
-        color = (lua_ent and lua_ent._waysigns_color) or object._waysigns_color or 'white',
-        author = (lua_ent and lua_ent._waysigns_author) or object._waysigns_author,
+        plaque = (lua_ent and lua_ent._waysigns_plaque) or (type(object) == 'table' and object._waysigns_plaque) or 'default',
+        color = (lua_ent and lua_ent._waysigns_color) or (type(object) == 'table' and object._waysigns_color) or 'white',
+        author = (lua_ent and lua_ent._waysigns_author) or (type(object) == 'table' and object._waysigns_author) or nil,
     }
 end
 

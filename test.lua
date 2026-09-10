@@ -6079,7 +6079,57 @@ end)()
     print('PASS Test 84')
 end)()
 
-print('================ ALL 84 UNIT TESTS PASSED ================')
+print('--- Test 85: Entity Inscription with Userdata ObjectRef (Prevent rawset crash) ---')
+;(function()
+    local lua_ent = { name = 'mobs_animal:cow' }
+    local props_store = { infotext = '' }
+    -- io.tmpfile() returns a genuine userdata across all Lua 5.1/5.2/5.3/5.4/5.5 versions
+    local userdata_obj = io.tmpfile()
+    local orig_mt = debug.getmetatable(userdata_obj)
+    local methods = {
+        get_luaentity = function() return lua_ent end,
+        get_properties = function() return props_store end,
+        set_properties = function(self, p)
+            for k, v in pairs(p) do props_store[k] = v end
+        end,
+        get_pos = function() return { x = 50, y = 2, z = 50 } end,
+        is_player = function() return false end,
+        is_valid = function() return true end,
+    }
+    debug.setmetatable(userdata_obj, { __index = methods })
+
+    assert(type(userdata_obj) == 'userdata', 'Test object must be a real userdata')
+
+    -- Call set_entity_inscription with genuine userdata
+    local ok = waysigns.set_entity_inscription(userdata_obj, 'Daisy the Cow', 'gold', 'cyan', 'farmer_john')
+    assert(ok == true, 'set_entity_inscription must return true for userdata ObjectRef')
+    assert(props_store.infotext == 'Daisy the Cow', 'infotext property must be updated on userdata')
+    assert(lua_ent._waysigns_text == 'Daisy the Cow', 'luaentity _waysigns_text must be updated')
+    assert(lua_ent._waysigns_plaque == 'gold', 'luaentity _waysigns_plaque must be updated')
+    assert(lua_ent._waysigns_color == 'cyan', 'luaentity _waysigns_color must be updated')
+    assert(lua_ent._waysigns_author == 'farmer_john', 'luaentity _waysigns_author must be updated')
+
+    -- Call get_entity_inscription with genuine userdata
+    local inscript = waysigns.get_entity_inscription(userdata_obj)
+    assert(inscript ~= nil, 'get_entity_inscription must return valid inscription')
+    assert(inscript.text == 'Daisy the Cow', 'Inscription text must match')
+    assert(inscript.plaque == 'gold', 'Inscription plaque must match')
+    assert(inscript.color == 'cyan', 'Inscription color must match')
+    assert(inscript.author == 'farmer_john', 'Inscription author must match')
+
+    -- Call get_entity_inscription_data with genuine userdata
+    local data = waysigns.get_entity_inscription_data(userdata_obj)
+    assert(data ~= nil, 'get_entity_inscription_data must return valid data')
+    assert(data.text == 'Daisy the Cow', 'Extracted data text must match')
+    assert(data.plaque == 'gold', 'Extracted data plaque must match')
+    assert(data.color == 'cyan', 'Extracted data color must match')
+
+    debug.setmetatable(userdata_obj, orig_mt)
+    userdata_obj:close()
+    print('PASS Test 85')
+end)()
+
+print('================ ALL 85 UNIT TESTS PASSED ================')
 
 
 

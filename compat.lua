@@ -1629,7 +1629,7 @@ function waysigns.get_entity_inscription_data(object)
     end
 
     local lua_ent = object:get_luaentity()
-    local text = (lua_ent and lua_ent._waysigns_text) or object._waysigns_text
+    local text = (lua_ent and lua_ent._waysigns_text) or (type(object) == 'table' and object._waysigns_text) or nil
     if not text or text == '' then
         local props = object:get_properties()
         if props and props.infotext and props.infotext ~= '' then
@@ -1641,8 +1641,8 @@ function waysigns.get_entity_inscription_data(object)
         return nil
     end
 
-    local plaque = (lua_ent and lua_ent._waysigns_plaque) or object._waysigns_plaque or 'default'
-    local color_name = (lua_ent and lua_ent._waysigns_color) or object._waysigns_color or 'white'
+    local plaque = (lua_ent and lua_ent._waysigns_plaque) or (type(object) == 'table' and object._waysigns_plaque) or 'default'
+    local color_name = (lua_ent and lua_ent._waysigns_color) or (type(object) == 'table' and object._waysigns_color) or 'white'
 
     local tile = waysigns.PLAQUE_STYLES[plaque] or waysigns.FALLBACK_WOOD
     local is_metal = (plaque == 'steel' or plaque == 'slate' or plaque == 'gold')
@@ -1681,6 +1681,11 @@ function waysigns.get_entity_inscription_data(object)
         is_entity = true,
         pos = waypoint_pos,
         face_pos = waypoint_pos,
+        plaque = plaque,
+        waysigns_plaque = plaque,
+        color = color_name,
+        waysigns_color = color_name,
+        author = (lua_ent and lua_ent._waysigns_author) or (type(object) == 'table' and object._waysigns_author) or nil,
     }
 end
 
