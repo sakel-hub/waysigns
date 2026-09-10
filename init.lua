@@ -35,3 +35,11 @@ core.register_on_punchnode(waysigns.invalidate_cache)
 core.register_on_dignode(waysigns.on_dignode)
 core.register_on_placenode(waysigns.invalidate_cache)
 
+-- Inventory interactions and formspec submissions
+if core.register_on_player_inventory_action and waysigns.on_player_inventory_action then
+    core.register_on_player_inventory_action(waysigns.on_player_inventory_action)
+end
+if core.register_on_player_receive_fields and waysigns.on_player_receive_fields then
+    core.register_on_player_receive_fields(waysigns.on_player_receive_fields)
+end
+

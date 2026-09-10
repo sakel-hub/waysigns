@@ -6129,7 +6129,243 @@ print('--- Test 85: Entity Inscription with Userdata ObjectRef (Prevent rawset c
     print('PASS Test 85')
 end)()
 
-print('================ ALL 85 UNIT TESTS PASSED ================')
+print('--- Test 86: Immediate plaque background update while looking at node ---')
+;(function()
+    local node_pos = { x = 800, y = 5, z = 800 }
+    local node_def = { name = 'default:wood', param2 = 0 }
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_raycast = core.raycast
+    core.get_node_or_nil = function(p)
+        if p.x == 800 and p.y == 5 and p.z == 800 then return node_def end
+        return orig_get_node_or_nil and orig_get_node_or_nil(p)
+    end
+    core.raycast = function()
+        local done = false
+        return function()
+            if not done then
+                done = true
+                return {
+                    type = 'node',
+                    under = node_pos,
+                    intersection_normal = { x = 0, y = 0, z = -1 },
+                    intersection_point = node_pos,
+                }
+            end
+            return nil
+        end
+    end
+
+    local meta = core.get_meta(node_pos)
+    meta:set_string('waysigns_text', 'Town Hall')
+    meta:set_string('waysigns_plaque', 'wood')
+    meta:set_string('waysigns_color', 'white')
+
+    local player = {
+        get_player_name = function() return 'plaque_tester' end,
+        is_player = function() return true end,
+        get_pos = function() return { x = 800, y = 5, z = 798 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        hud_elements = {},
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            table.insert(self.hud_adds, { id = id, def = def })
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+                table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+            table.insert(self.hud_removes, id)
+        end,
+    }
+
+    _G.mock_players = { player }
+
+    -- Initial inspection: player looks at node with 'wood' plaque
+    local pstate = waysigns.get_or_create_player_state(player)
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(player, 0)
+
+    assert(pstate.is_visible == true, 'HUD must be visible')
+    assert(pstate.hud_bg_id ~= nil, 'Background HUD element must exist')
+    local initial_bg = pstate.rendered_bg_texture
+    assert(pstate.current_sign_data.plaque == 'wood', 'Initial plaque must be wood')
+
+    -- Now, player changes plaque from 'wood' to 'gold' with same text 'Town Hall'
+    player.hud_changes = {}
+    waysigns.set_node_inscription(node_pos, 'Town Hall', 'gold', 'white', 'plaque_tester')
+
+    -- Verify that set_node_inscription immediately invalidated cache and updated HUD
+    assert(pstate.current_sign_data.plaque == 'gold', 'Updated sign data must reflect gold plaque')
+    assert(pstate.rendered_bg_texture ~= initial_bg, 'rendered_bg_texture must update to gold plaque')
+
+    local bg_changed = false
+    for _, ch in ipairs(player.hud_changes) do
+        if ch.id == pstate.hud_bg_id and ch.stat == 'text' then
+            bg_changed = true
+            assert(ch.val == pstate.rendered_bg_texture, 'HUD text must match rendered_bg_texture')
+        end
+    end
+    assert(bg_changed, 'hud_change must be sent immediately to update plaque background without looking away')
+
+    -- Cleanup
+    waysigns.remove_all_huds(player)
+    _G.mock_players = {}
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.raycast = orig_raycast
+    print('PASS Test 86')
+end)()
+
+print('--- Test 87: Immediate chest inventory quickview update on inventory action ---')
+;(function()
+    local chest_pos = { x = 900, y = 5, z = 900 }
+    local chest_node = { name = 'default:chest', param2 = 0 }
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_raycast = core.raycast
+    core.get_node_or_nil = function(p)
+        if p.x == 900 and p.y == 5 and p.z == 900 then return chest_node end
+        return orig_get_node_or_nil and orig_get_node_or_nil(p)
+    end
+    core.raycast = function()
+        local done = false
+        return function()
+            if not done then
+                done = true
+                return {
+                    type = 'node',
+                    under = chest_pos,
+                    intersection_normal = { x = 0, y = 0, z = -1 },
+                    intersection_point = chest_pos,
+                }
+            end
+            return nil
+        end
+    end
+
+    local function MockItemStack(name, count)
+        return {
+            get_name = function() return name end,
+            get_count = function() return count end,
+            is_empty = function() return (count == 0 or name == '') end,
+            to_string = function() return name .. ' ' .. count end,
+        }
+    end
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, lname)
+                return lists[lname] or {}
+            end,
+            get_lists = function(self)
+                return lists
+            end,
+            is_empty = function(self, lname)
+                local l = lists[lname]
+                if not l then return true end
+                for _, st in ipairs(l) do
+                    if not st:is_empty() then return false end
+                end
+                return true
+            end,
+        }
+    end
+
+    local chest_items = {
+        MockItemStack('default:apple', 5),
+    }
+    local chest_inv = MockInventory({ main = chest_items })
+    local chest_meta = core.get_meta(chest_pos)
+    chest_meta:set_string('infotext', 'Community Chest')
+    chest_pos.inv = chest_inv
+
+    local player = {
+        get_player_name = function() return 'chest_tester' end,
+        is_player = function() return true end,
+        get_pos = function() return { x = 900, y = 5, z = 898 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        hud_elements = {},
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            table.insert(self.hud_adds, { id = id, def = def })
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+                table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+            table.insert(self.hud_removes, id)
+        end,
+    }
+
+    _G.mock_players = { player }
+
+    -- 1. Player is looking at the chest; initial quickview shows 5 apples
+    local pstate = waysigns.get_or_create_player_state(player)
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(player, 0)
+
+    assert(pstate.is_visible == true, 'HUD must be visible for chest')
+    local initial_bg = pstate.rendered_bg_texture
+    assert(initial_bg:find('default_apple'), 'Initial HUD background must include apple texture')
+    assert(#pstate.current_sign_data.quickview_items == 1, 'Initial quickview should have 1 item type')
+
+    -- 2. Player deposits 10 iron ingots into the chest
+    table.insert(chest_items, MockItemStack('default:steel_ingot', 10))
+    player.hud_changes = {}
+
+    -- Trigger on_player_inventory_action
+    local mock_inv_ref = {
+        get_location = function() return { type = 'node', pos = chest_pos } end,
+        get_list = function(self, list) return chest_items end,
+    }
+    waysigns.on_player_inventory_action(player, 'put', mock_inv_ref, { listname = 'main' })
+
+    -- Verify that on_player_inventory_action immediately invalidated cache and re-rendered HUD
+    assert(pstate.rendered_bg_texture ~= initial_bg, 'Background texture must update to include steel ingot')
+    assert(pstate.rendered_bg_texture:find('default_steel_ingot'), 'Updated HUD must include steel ingot texture')
+    assert(#pstate.current_sign_data.quickview_items == 2, 'Updated chest quickview must have 2 item types')
+
+    local bg_changed = false
+    for _, ch in ipairs(player.hud_changes) do
+        if ch.id == pstate.hud_bg_id and ch.stat == 'text' then
+            bg_changed = true
+            assert(ch.val:find('default_steel_ingot'), 'HUD change must contain the newly deposited item')
+        end
+    end
+    assert(bg_changed, 'hud_change must be emitted immediately upon inventory action without looking away')
+
+    -- 3. Formspec close also preserves HUD and triggers reactive invalidation
+    player.hud_changes = {}
+    waysigns.on_player_receive_fields(player, 'default:chest', { quit = 'true' })
+    assert(pstate.is_visible == true, 'HUD remains visible after formspec close')
+
+    -- Cleanup
+    waysigns.remove_all_huds(player)
+    _G.mock_players = {}
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.raycast = orig_raycast
+    print('PASS Test 87')
+end)()
+
+print('================ ALL 87 UNIT TESTS PASSED ================')
+
 
 
 

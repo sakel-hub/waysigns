@@ -1194,8 +1194,11 @@ function waysigns.get_sign_data(pos, node, player)
         aspect_ratio = aspect_ratio,
         rx_scale = rx_scale,
         rx_color = rx_color,
+        plaque = waysigns_plaque,
         waysigns_plaque = waysigns_plaque,
+        color = waysigns_color,
         waysigns_color = waysigns_color,
+        author = has_inscription and meta:get_string('waysigns_author') or nil,
         wrapped = waysigns.wrap_text(text, 30, 5, text_color),
         has_inscription = has_inscription,
         is_dedicated_sign = is_dedicated_sign,
@@ -1316,9 +1319,9 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
                 total_item_count = total_item_count + count
                 if not item_map[item_name] then
                     local item_def = core.registered_items[item_name] or {}
-                    local desc = stack:get_short_description()
+                    local desc = stack.get_short_description and stack:get_short_description()
                     if not desc or desc == '' then
-                        desc = stack:get_description()
+                        desc = stack.get_description and stack:get_description()
                     end
                     if not desc or desc == '' then
                         desc = item_def.description or item_name
@@ -1532,6 +1535,9 @@ function waysigns.get_node_infotext_data(pos, node, player)
         return nil
     end
 
+    local waysigns_plaque = has_waysigns and meta:get_string('waysigns_plaque') or ''
+    local waysigns_color = has_waysigns and meta:get_string('waysigns_color') or ''
+
     local pos_key = core.hash_node_position(pos)
     local player_name = player and player:get_player_name() or ''
     local cached_node = waysigns.node_cache[pos_key]
@@ -1540,7 +1546,8 @@ function waysigns.get_node_infotext_data(pos, node, player)
 
     -- Container inventory quickview extraction (with 0.5s throttling)
     local now = core.get_us_time() / 1000000
-    if cached and cached.nodename == node.name and cached.cand == cand and cached.timestamp and (now - cached.timestamp < 0.5) then
+    if cached and cached.nodename == node.name and cached.cand == cand and cached.timestamp and (now - cached.timestamp < 0.5)
+        and (cached.waysigns_plaque or '') == waysigns_plaque and (cached.waysigns_color or '') == waysigns_color then
         return cached
     end
 
@@ -1556,7 +1563,9 @@ function waysigns.get_node_infotext_data(pos, node, player)
     end
 
     local inv_hash = qv and qv.inv_hash or ''
-    if cached and cached.nodename == node.name and cached.raw_text == full_cand and cached.inv_hash == inv_hash and cached.is_infotext then
+    if cached and cached.nodename == node.name and cached.raw_text == full_cand and cached.inv_hash == inv_hash
+        and (cached.waysigns_plaque or '') == waysigns_plaque and (cached.waysigns_color or '') == waysigns_color
+        and cached.is_infotext then
         cached.timestamp = now
         return cached
     end
@@ -1568,8 +1577,6 @@ function waysigns.get_node_infotext_data(pos, node, player)
     local text_color = nil
 
     if has_waysigns then
-        local waysigns_plaque = meta:get_string('waysigns_plaque')
-        local waysigns_color = meta:get_string('waysigns_color')
         if waysigns_plaque ~= '' and waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[waysigns_plaque] then
             base_tile = waysigns.PLAQUE_STYLES[waysigns_plaque]
             is_metal = (waysigns_plaque == 'steel' or waysigns_plaque == 'slate' or waysigns_plaque == 'gold')
@@ -1604,6 +1611,11 @@ function waysigns.get_node_infotext_data(pos, node, player)
         items = qv and qv.items or nil,
         inv_hash = inv_hash,
         timestamp = now,
+        plaque = waysigns_plaque,
+        waysigns_plaque = waysigns_plaque,
+        color = waysigns_color,
+        waysigns_color = waysigns_color,
+        author = has_waysigns and meta:get_string('waysigns_author') or nil,
     }
 
     local entry = waysigns.node_cache[pos_key]

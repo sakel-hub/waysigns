@@ -271,16 +271,43 @@ function waysigns.invalidate_cache(pos)
     if not pos then
         return
     end
-    local hash = core.hash_node_position(pos)
+    local hash = (core.hash_node_position and core.hash_node_position(pos))
+        or (core.pos_to_string and core.pos_to_string(pos))
+        or string.format('%d,%d,%d', pos.x or 0, pos.y or 0, pos.z or 0)
+    local str_key = (core.pos_to_string and core.pos_to_string(pos))
+        or (vector and vector.to_string and vector.to_string(pos))
+        or string.format('%d,%d,%d', pos.x or 0, pos.y or 0, pos.z or 0)
     if waysigns.node_cache[hash] ~= nil then
         waysigns.node_cache[hash] = nil
         node_cache_count = math.max(0, node_cache_count - 1)
     end
+    if hash ~= str_key and waysigns.node_cache[str_key] ~= nil then
+        waysigns.node_cache[str_key] = nil
+        node_cache_count = math.max(0, node_cache_count - 1)
+    end
+    for i = #node_cache_keys, 1, -1 do
+        local k = node_cache_keys[i]
+        if k == hash or k == str_key then
+            table.remove(node_cache_keys, i)
+        end
+    end
     if waysigns.protection_cache then
-        local prefix = hash .. ':'
+        local prefix = tostring(hash) .. ':'
         for k in pairs(waysigns.protection_cache) do
             if k:sub(1, #prefix) == prefix then
                 waysigns.protection_cache[k] = nil
+            end
+        end
+    end
+    if core.get_connected_players then
+        for _, player in ipairs(core.get_connected_players()) do
+            local name = player:get_player_name()
+            local state = waysigns.players[name]
+            if state and state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, pos) then
+                state.check_timer = waysigns.settings.check_interval
+                if player.get_pos and player:get_pos() then
+                    waysigns.update_player(player, 0)
+                end
             end
         end
     end
@@ -1152,6 +1179,7 @@ function waysigns.get_or_create_player_state(player)
             hud_display_mode = nil,
             rendered_line_texts = {},
             rendered_line_colors = {},
+            rendered_line_offsets = {},
             rendered_page_text = nil,
             rendered_bg_texture = nil,
             opacity = 0,
@@ -1199,6 +1227,7 @@ function waysigns.remove_all_huds(player)
 
     state.rendered_line_texts = {}
     state.rendered_line_colors = {}
+    state.rendered_line_offsets = {}
     state.rendered_page_text = nil
     state.rendered_bg_texture = nil
 
@@ -1517,6 +1546,7 @@ function waysigns.render_hud(player, state)
 
     state.rendered_line_texts = state.rendered_line_texts or {}
     state.rendered_line_colors = state.rendered_line_colors or {}
+    state.rendered_line_offsets = state.rendered_line_offsets or {}
 
     for i, line_item in ipairs(lines) do
         local line_str = line_item.text or ''
@@ -1565,6 +1595,7 @@ function waysigns.render_hud(player, state)
             state.hud_line_ids[i] = elem_id
             state.rendered_line_texts[i] = display_text
             state.rendered_line_colors[i] = current_color
+            state.rendered_line_offsets[i] = line_y
         else
             if is_waypoint then
                 if state.rendered_line_texts[i] ~= display_text then
@@ -1574,6 +1605,10 @@ function waysigns.render_hud(player, state)
                 if state.rendered_line_colors[i] ~= current_color then
                     player:hud_change(elem_id, 'number', current_color)
                     state.rendered_line_colors[i] = current_color
+                end
+                if state.rendered_line_offsets[i] ~= line_y then
+                    player:hud_change(elem_id, 'offset', { x = 0, y = line_y })
+                    state.rendered_line_offsets[i] = line_y
                 end
                 if page_changed and world_pos then
                     player:hud_change(elem_id, 'world_pos', world_pos)
@@ -1587,8 +1622,11 @@ function waysigns.render_hud(player, state)
                     player:hud_change(elem_id, 'number', current_color)
                     state.rendered_line_colors[i] = current_color
                 end
-                if page_changed then
+                if state.rendered_line_offsets[i] ~= line_y or page_changed then
                     player:hud_change(elem_id, 'offset', { x = 0, y = line_y })
+                    state.rendered_line_offsets[i] = line_y
+                end
+                if page_changed then
                     player:hud_change(elem_id, 'size', { x = hud_scale })
                     player:hud_change(elem_id, 'position', { x = 0.5, y = overlay_y })
                 end
@@ -1687,7 +1725,20 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
 
     local state = waysigns.get_or_create_player_state(player)
     local pos_changed = not state.current_sign_pos or not vector.equals(state.current_sign_pos, sign_pos)
-    local text_changed = not state.current_sign_data or (state.current_sign_data.raw_text ~= sign_data.raw_text)
+    local prev = state.current_sign_data
+    local data_changed = not prev
+        or (prev.raw_text ~= sign_data.raw_text)
+        or (prev.inv_hash ~= sign_data.inv_hash)
+        or (prev.tile ~= sign_data.tile)
+        or (prev.plaque ~= sign_data.plaque)
+        or (prev.waysigns_plaque ~= sign_data.waysigns_plaque)
+        or (prev.color ~= sign_data.color)
+        or (prev.text_color ~= sign_data.text_color)
+        or (prev.author ~= sign_data.author)
+        or (prev.is_metal ~= sign_data.is_metal)
+        or (prev.is_light_bg ~= sign_data.is_light_bg)
+        or (prev.is_glass ~= sign_data.is_glass)
+        or (prev.quickview_items ~= sign_data.quickview_items)
 
     if not state.is_visible or pos_changed then
         -- Clean up previous HUD elements immediately when switching to a different sign
@@ -1707,9 +1758,11 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
 
         waysigns.render_hud(player, state)
         return
-    elseif text_changed then
-        -- Same node position, but text or container contents updated: update in-place without tearing down HUDs
+    elseif data_changed then
+        -- Same node position, but text, plaque, or container contents updated: update in-place without tearing down HUDs
         state.current_sign_data = sign_data
+        state.sign_face_pos = (sign_data.is_entity and (sign_data.pos or sign_pos))
+            or waysigns.get_sign_face_pos(sign_pos, state.current_sign_normal, intersection_point, is_attached_above, sign_data.is_infotext)
         state.current_page = 1
         state.page_timer = 0
         state.target_opacity = 1.0
@@ -2374,6 +2427,19 @@ function waysigns.set_entity_inscription(object, text, plaque, color, player_nam
     object:set_properties({
         infotext = text or '',
     })
+
+    if core.get_connected_players then
+        for _, p in ipairs(core.get_connected_players()) do
+            local pname = p:get_player_name()
+            local pstate = waysigns.players[pname]
+            if pstate and pstate.is_visible and pstate.current_sign_data and pstate.current_sign_data.is_entity then
+                pstate.check_timer = waysigns.settings.check_interval
+                if p.get_pos and p:get_pos() then
+                    waysigns.update_player(p, 0)
+                end
+            end
+        end
+    end
     return true
 end
 
@@ -2395,6 +2461,51 @@ function waysigns.get_entity_inscription(object)
         color = (lua_ent and lua_ent._waysigns_color) or (type(object) == 'table' and object._waysigns_color) or 'white',
         author = (lua_ent and lua_ent._waysigns_author) or (type(object) == 'table' and object._waysigns_author) or nil,
     }
+end
+
+---Callback triggered when a player performs an inventory action (put, take, move).
+---Immediately invalidates node cache and updates HUD for containers being viewed.
+---@param player ObjectRef Player performing the inventory action
+---@param action string "move", "put", or "take"
+---@param inventory InvRef Inventory reference
+---@param inventory_info table Action info table
+function waysigns.on_player_inventory_action(player, action, inventory, inventory_info)
+    if not player or not player:is_player() then
+        return
+    end
+
+    local inv_loc = inventory and inventory.get_location and inventory:get_location()
+    if inv_loc and (inv_loc.type == 'node' or inv_loc.type == 'nodemeta') and inv_loc.pos then
+        waysigns.invalidate_cache(inv_loc.pos)
+    end
+
+    local name = player:get_player_name()
+    if not name or name == '' then
+        return
+    end
+
+    local state = waysigns.players[name]
+    if state and state.is_visible and state.current_sign_pos then
+        waysigns.invalidate_cache(state.current_sign_pos)
+    end
+end
+
+---Callback triggered when player submits or closes a formspec.
+---Ensures container quickviews update immediately when container formspecs are closed.
+---@param player ObjectRef Player object
+---@param formname string Formspec name
+---@param fields table Submitted fields
+function waysigns.on_player_receive_fields(player, formname, fields)
+    if not player or not player:is_player() then
+        return
+    end
+    if fields and fields.quit then
+        local name = player:get_player_name()
+        local state = name and waysigns.players[name]
+        if state and state.is_visible and state.current_sign_pos then
+            waysigns.invalidate_cache(state.current_sign_pos)
+        end
+    end
 end
 
 -- Load persistent inscribed registry on startup
