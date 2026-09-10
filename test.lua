@@ -1,12 +1,30 @@
 -- Mock Luanti core environment for unit testing waysigns
 if not string.split then
-    rawset(string, 'split', function(str, sep)
-        local parts = {}
-        local pattern = string.format("([^%s]+)", sep)
-        for part in str:gmatch(pattern) do
-            table.insert(parts, part)
+    rawset(string, 'split', function(str, delim, include_empty, max_splits, sep_is_pattern)
+        delim = delim or ','
+        include_empty = include_empty or false
+        max_splits = max_splits or -1
+        local items = {}
+        local pos = 1
+        while true do
+            local b, e = string.find(str, delim, pos, not sep_is_pattern)
+            if not b or max_splits == 0 then
+                local sub = string.sub(str, pos)
+                if #sub > 0 or include_empty then
+                    table.insert(items, sub)
+                end
+                break
+            end
+            local sub = string.sub(str, pos, b - 1)
+            if #sub > 0 or include_empty then
+                table.insert(items, sub)
+                if max_splits > 0 then
+                    max_splits = max_splits - 1
+                end
+            end
+            pos = e + 1
         end
-        return parts
+        return items
     end)
 end
 
@@ -6364,7 +6382,167 @@ print('--- Test 87: Immediate chest inventory quickview update on inventory acti
     print('PASS Test 87')
 end)()
 
-print('================ ALL 87 UNIT TESTS PASSED ================')
+print('--- Test 88: Square Aspect Ratio on Quickview Nodes & Containment of 5 Lines + 4 Rows ---')
+;(function()
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_raycast = core.raycast
+
+    -- 1. Test clean_text / wrap_text sanitization
+    local raw_with_newlines = "\n\n  \nFirst line of text\n\n\n\nSecond line of text\nThird line\nFourth line\n\n  \n"
+    local wrap_res = waysigns.wrap_text(raw_with_newlines, 30, 5, 0xFFFFFF)
+    assert(#wrap_res.pages == 1, 'Should fit in 1 page of 5 lines, got pages: ' .. #wrap_res.pages)
+    local p1_lines = wrap_res.pages[1]
+    assert(#p1_lines == 5, 'Page 1 should have 5 lines, got: ' .. #p1_lines)
+    assert(p1_lines[1].text == 'First line of text', 'Leading newlines must be trimmed, got: ' .. tostring(p1_lines[1].text))
+    assert(p1_lines[2].text == '', 'Excessive newlines should collapse to a single empty line')
+    assert(p1_lines[3].text == 'Second line of text', 'Third line must be Second line of text')
+    assert(p1_lines[4].text == 'Third line', 'Fourth line must be Third line')
+    assert(p1_lines[5].text == 'Fourth line', 'Fifth line must be Fourth line')
+    assert(p1_lines[#p1_lines].text:match('%S'), 'Trailing blank lines must be trimmed')
+
+    -- 2. Setup mock node & inventory for inscribed container
+    local chest_pos = { x = 200, y = 10, z = 200 }
+    local meta = core.get_meta(chest_pos)
+    meta:set_string('waysigns_text', 'Storage Depot\nSector 7 Materials\nBulk Components\nVerified Inventory\nPriority Access')
+    meta:set_string('waysigns_author', 'tester')
+
+    core.registered_nodes['default:chest_locked'] = {
+        description = 'Locked Chest',
+        tiles = { 'default_chest_top.png', 'default_chest_top.png', 'default_chest_side.png',
+                  'default_chest_side.png', 'default_chest_side.png', 'default_chest_lock.png' },
+        drawtype = 'normal',
+    }
+
+    core.get_node_or_nil = function(p)
+        if vector.equals(p, chest_pos) then
+            return { name = 'default:chest_locked', param2 = 0 }
+        end
+        return nil
+    end
+
+    local function make_items(count)
+        local list = {}
+        for i = 1, count do
+            list[i] = { name = 'default:item_' .. i, count = i, icon = 'item_' .. i .. '.png' }
+        end
+        return list
+    end
+
+    local player = {
+        get_player_name = function() return 'tester' end,
+        is_player = function() return true end,
+        get_pos = function() return { x = 200, y = 10, z = 197 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_player_control = function() return {} end,
+        get_wielded_item = function() return { get_name = function() return '' end } end,
+        hud_elements = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+        end,
+    }
+
+    -- 2A. Test: INSCRIBED node WITH quickview items (4 rows = 32 items)
+    local items32 = make_items(32)
+    local orig_extract_inv = waysigns.extract_node_inventory
+    waysigns.extract_node_inventory = function(p, node, nmeta, plr)
+        return {
+            items = items32,
+            inv_hash = 'hash32',
+            summary = '32 items',
+        }
+    end
+
+    local sign_data_with_qv = waysigns.get_node_infotext_data(chest_pos, { name = 'default:chest_locked' }, player)
+    assert(sign_data_with_qv ~= nil, 'Sign data must be returned')
+    assert(sign_data_with_qv.aspect_ratio == 1.0,
+        'Aspect ratio must be forced to 1.0 when quickview has items, got: ' .. tostring(sign_data_with_qv.aspect_ratio))
+
+    -- Render HUD at scale 2.0
+    local pstate = waysigns.get_or_create_player_state(player)
+    pstate.current_sign_data = sign_data_with_qv
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(player, pstate)
+
+    -- Inspect rendered background dimensions from texture combine tag
+    local bg_tex = pstate.rendered_bg_texture
+    local bw_str, bh_str = bg_tex:match('%[combine:(%d+)x(%d+)')
+    assert(bw_str and bh_str, 'Background texture must contain [combine:WxH tag')
+    local bw, bh = tonumber(bw_str), tonumber(bh_str)
+    assert(bw == bh, 'Plaque must be perfectly SQUARE (bw == bh), got: ' .. bw .. 'x' .. bh)
+    assert(bw >= 320, 'Plaque dimension must accommodate content and base dimension, got: ' .. bw)
+
+    -- Verify line positions and containment
+    local lines = sign_data_with_qv.wrapped.pages[1]
+    assert(#lines == 5, 'Must have 5 lines of text')
+    local hud_scale = 2.0
+    local padding_v = math.floor(18 * hud_scale)
+    local top_limit = -math.floor(bh / 2) + padding_v
+
+    local _, _, _, _, _, b_margin, grid_h = waysigns.get_quickview_dock_metrics(bw, 32)
+    local grid_top_offset = math.floor(bh / 2) - b_margin - grid_h
+
+    -- Check Line 1 top
+    local line1_y = pstate.rendered_line_offsets[1]
+    assert(line1_y - 8 >= top_limit,
+        string.format('Line 1 (y=%d) must be inside plaque top limit (top_limit=%d)', line1_y, top_limit))
+
+    -- Check Line 5 bottom strictly above dock
+    local line5_y = pstate.rendered_line_offsets[5]
+    assert(line5_y + 8 < grid_top_offset,
+        string.format('Line 5 (y=%d) must not collide with quickview dock (dock_top=%d)', line5_y, grid_top_offset))
+
+    -- Check snug line height: distance between lines should be <= 22px
+    local line_spacing = pstate.rendered_line_offsets[2] - pstate.rendered_line_offsets[1]
+    assert(line_spacing <= 22,
+        string.format('Line spacing should be snug (~21px), got: %d px', line_spacing))
+
+    -- 2B. Test: INSCRIBED node WITHOUT quickview items (0 items)
+    waysigns.extract_node_inventory = function(p, node, nmeta, plr)
+        return {
+            items = {},
+            inv_hash = 'empty',
+            summary = '',
+        }
+    end
+    -- Invalidate cache for test
+    waysigns.node_cache[core.hash_node_position(chest_pos)] = nil
+
+    local sign_data_no_qv = waysigns.get_node_infotext_data(chest_pos, { name = 'default:chest_locked' }, player)
+    assert(sign_data_no_qv ~= nil, 'Sign data must be returned')
+    assert(sign_data_no_qv.aspect_ratio == 1.40,
+        'Aspect ratio for inscribed node without quickview items must remain 1.40, got: ' .. tostring(sign_data_no_qv.aspect_ratio))
+
+    -- 2C. Test: Non-inscribed node without inscription or quickview
+    meta:set_string('waysigns_text', '')
+    meta:set_string('infotext', 'Simple Wooden Chest')
+    waysigns.node_cache[core.hash_node_position(chest_pos)] = nil
+
+    local sign_data_plain = waysigns.get_node_infotext_data(chest_pos, { name = 'default:chest_locked' }, player)
+    assert(sign_data_plain ~= nil, 'Sign data must be returned')
+    assert(sign_data_plain.aspect_ratio == 1.0,
+        'Aspect ratio for plain infotext node must remain 1.0, got: ' .. tostring(sign_data_plain.aspect_ratio))
+
+    -- Cleanup
+    waysigns.extract_node_inventory = orig_extract_inv
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.raycast = orig_raycast
+    waysigns.remove_all_huds(player)
+    print('PASS Test 88')
+end)()
+
+print('================ ALL 88 UNIT TESTS PASSED ================')
 
 
 

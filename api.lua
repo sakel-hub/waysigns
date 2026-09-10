@@ -767,6 +767,10 @@ function waysigns.wrap_text(raw_text, max_chars, max_lines, default_color)
 
     -- Normalize CRLF to LF
     local clean_text = raw_text:gsub('\r\n', '\n'):gsub('\r', '\n')
+    -- Strip leading and trailing newlines/blank space
+    clean_text = clean_text:gsub('^[ \t]*\n+', ''):gsub('\n+[ \t]*$', '')
+    -- Collapse 3 or more consecutive newlines to maximum 2 newlines (at most 1 empty line)
+    clean_text = clean_text:gsub('\n%s*\n%s*\n+', '\n\n')
     local raw_lines = clean_text:split('\n', true)
     local wrapped_lines = {}
     local max_len = 0
@@ -834,6 +838,15 @@ function waysigns.wrap_text(raw_text, max_chars, max_lines, default_color)
                 end
             end
         end
+    end
+
+    -- Strip trailing empty lines from wrapped lines
+    while #wrapped_lines > 1 and wrapped_lines[#wrapped_lines].text:match('^%s*$') do
+        table.remove(wrapped_lines)
+    end
+    -- Strip leading empty lines from wrapped lines
+    while #wrapped_lines > 1 and wrapped_lines[1].text:match('^%s*$') do
+        table.remove(wrapped_lines, 1)
     end
 
     if #wrapped_lines == 0 then
@@ -996,6 +1009,39 @@ function waysigns.get_aspect_ratio(nodename, node_def, reg_def)
     return 1.40
 end
 
+---Compute quickview dock layout metrics for a given plaque width and item count
+---@param w number Plaque width in pixels
+---@param num_items number Total items to display
+---@return number cols Number of columns
+---@return number rows Number of rows
+---@return number slot_size Size of each slot in pixels
+---@return number icon_size Size of item icon in pixels
+---@return number slot_spacing Spacing between slots in pixels
+---@return number bottom_margin Bottom margin of dock in pixels
+---@return number total_grid_h Total height of dock grid in pixels
+function waysigns.get_quickview_dock_metrics(w, num_items)
+    local items = math.min(num_items, 32)
+    local cols = math.min(items, 8)
+    local rows = math.min(4, math.ceil(items / cols))
+
+    local scale_ratio = w / 224
+    local base_slot = 22
+    local slot_size = math.max(12, math.floor(base_slot * scale_ratio + 0.5))
+    local icon_size = math.max(8, math.floor((base_slot - 4) * scale_ratio + 0.5))
+    local slot_spacing = math.max(1, math.floor(2 * scale_ratio + 0.5))
+    local bottom_margin = math.max(6, math.floor(10 * scale_ratio + 0.5))
+
+    local avail_w = math.max(32, w - 24)
+    local max_fit_slot = math.max(10, math.floor((avail_w - (cols - 1) * slot_spacing) / cols))
+    if slot_size > max_fit_slot then
+        slot_size = max_fit_slot
+        icon_size = math.max(8, slot_size - 4)
+    end
+
+    local total_grid_h = rows * slot_size + (rows - 1) * slot_spacing
+    return cols, rows, slot_size, icon_size, slot_spacing, bottom_margin, total_grid_h
+end
+
 ---Create or retrieve cached dynamic background texture matching sign plaque
 ---@param base_tile string|nil Base texture name
 ---@param width integer Plaque width in pixels
@@ -1098,27 +1144,8 @@ function waysigns.get_background_texture(base_tile, width, height, alpha, is_met
     if quickview_items and #quickview_items > 0 then
         local dock_parts = { '[combine:', w, 'x', h }
         local num_items = math.min(#quickview_items, 32)
-        local cols = math.min(num_items, 8)
-        local rows = math.min(4, math.ceil(num_items / cols))
-
-        -- Scale slot size, icon size, spacing, and bottom margin proportionally with plaque width
-        -- Base width is 224px (standard square infotext plaque at scale 1.4, scales to 320px at default scale 2.0)
-        local scale_ratio = w / 224
-        local base_slot = 22
-        local slot_size = math.max(12, math.floor(base_slot * scale_ratio + 0.5))
-        local icon_size = math.max(8, math.floor((base_slot - 4) * scale_ratio + 0.5))
-        local slot_spacing = math.max(1, math.floor(2 * scale_ratio + 0.5))
-        local bottom_margin = math.max(6, math.floor(10 * scale_ratio + 0.5))
-
-        -- Ensure grid always fits within available width with margins
-        local avail_w = math.max(32, w - 24)
-        local max_fit_slot = math.max(10, math.floor((avail_w - (cols - 1) * slot_spacing) / cols))
-        if slot_size > max_fit_slot then
-            slot_size = max_fit_slot
-            icon_size = math.max(8, slot_size - 4)
-        end
-
-        local total_grid_h = rows * slot_size + (rows - 1) * slot_spacing
+        local cols, rows, slot_size, icon_size, slot_spacing, bottom_margin, total_grid_h =
+            waysigns.get_quickview_dock_metrics(w, num_items)
         local grid_start_y = h - bottom_margin - total_grid_h
 
         for r = 1, rows do
@@ -1344,7 +1371,7 @@ function waysigns.render_hud(player, state)
 
     local lines = pages[page_idx] or { '' }
     local total_pages = #pages
-    local line_height = math.floor(20 * hud_scale)
+    local line_height = math.floor(18 + 2 * math.min(1.5, hud_scale))
     local padding_v = math.floor(18 * hud_scale)
     local padding_h = math.floor(24 * hud_scale)
     local char_width = 8.5 * hud_scale
@@ -1352,10 +1379,13 @@ function waysigns.render_hud(player, state)
     local ar = sign_data.aspect_ratio or 1.40
 
     local qv_count = (sign_data.quickview_items and #sign_data.quickview_items) or 0
-    local qv_rows = 0
-    if qv_count > 0 then
-        local qv_cols = math.min(qv_count, 8)
-        qv_rows = math.min(4, math.ceil(qv_count / qv_cols))
+    local has_quickview_items = (qv_count > 0)
+    local qv_b_margin, qv_grid_h
+    if has_quickview_items then
+        local est_w = math.floor(160 * hud_scale)
+        local _, _, _, _, _, b_margin, grid_h = waysigns.get_quickview_dock_metrics(est_w, qv_count)
+        qv_b_margin = b_margin
+        qv_grid_h = grid_h
     end
 
     -- Content required space
@@ -1367,12 +1397,9 @@ function waysigns.render_hud(player, state)
     if total_pages > 1 then
         req_w = math.max(req_w, text_w + padding_h * 2 + math.floor(30 * hud_scale))
     end
-    if qv_rows == 1 then
-        req_h = req_h + math.floor(36 * hud_scale)
-    elseif qv_rows == 2 then
-        req_h = req_h + math.floor(54 * hud_scale)
-    elseif qv_rows >= 3 then
-        req_h = req_h + math.floor(72 * hud_scale)
+    if has_quickview_items and qv_grid_h and qv_b_margin then
+        local dock_gap = math.floor(8 * hud_scale)
+        req_h = req_h + qv_grid_h + qv_b_margin + dock_gap
     end
 
     local max_screen_w = 1600
@@ -1383,7 +1410,18 @@ function waysigns.render_hud(player, state)
     end
 
     local board_w, board_h
-    if sign_data.is_infotext and not sign_data.has_inscription then
+    if has_quickview_items then
+        -- Force square plaque when quickview items are displayed, providing ample 1:1 vertical canvas
+        local base_dim = math.floor(160 * hud_scale)
+        local target_dim = math.max(base_dim, math.max(req_w, req_h))
+        board_w = math.max(64, math.min(max_screen_w, target_dim))
+        board_h = math.max(64, math.min(max_screen_h, board_w))
+        board_w = board_h
+        -- Re-calculate exact dock metrics using actual board_w
+        local _, _, _, _, _, b_margin, grid_h = waysigns.get_quickview_dock_metrics(board_w, qv_count)
+        qv_b_margin = b_margin
+        qv_grid_h = grid_h
+    elseif sign_data.is_infotext and not sign_data.has_inscription then
         -- Option 1: Lock plain infotext plaques to a constant, stable square size regardless of item count
         local base_dim = math.floor(160 * hud_scale)
         board_w = math.max(64, math.min(max_screen_w, base_dim))
@@ -1526,16 +1564,21 @@ function waysigns.render_hud(player, state)
     end
 
     -- 2. Line text elements
-    local start_y = -math.floor((#lines - 1) * line_height / 2)
-    if total_pages > 1 then
-        start_y = start_y - math.floor(4 * hud_scale)
-    end
-    if qv_rows == 1 then
-        start_y = start_y - math.floor(14 * hud_scale)
-    elseif qv_rows == 2 then
-        start_y = start_y - math.floor(22 * hud_scale)
-    elseif qv_rows >= 3 then
-        start_y = start_y - math.floor(30 * hud_scale)
+    local start_y
+    if has_quickview_items and qv_grid_h and qv_b_margin then
+        local grid_top_offset = math.floor(board_h / 2) - qv_b_margin - qv_grid_h
+        local top_limit = -math.floor(board_h / 2) + padding_v
+        local bottom_limit = grid_top_offset - math.floor(6 * hud_scale)
+        local text_area_center = math.floor((top_limit + bottom_limit) / 2)
+        start_y = text_area_center - math.floor((#lines - 1) * line_height / 2)
+        if total_pages > 1 then
+            start_y = start_y - math.floor(4 * hud_scale)
+        end
+    else
+        start_y = -math.floor((#lines - 1) * line_height / 2)
+        if total_pages > 1 then
+            start_y = start_y - math.floor(4 * hud_scale)
+        end
     end
 
     state.rendered_line_texts = state.rendered_line_texts or {}

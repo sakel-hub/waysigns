@@ -961,13 +961,17 @@ function waysigns.get_sign_data(pos, node, player)
             end
         end
 
-        if clean_info and clean_info ~= '' and clean_info ~= waysigns_text
-            and clean_info:lower() ~= waysigns_text:lower()
-            and not waysigns_text:find(clean_info, 1, true)
-            and not clean_info:find(waysigns_text, 1, true) then
-            text = waysigns_text .. '\n' .. clean_info
+        local wt = waysigns_text:gsub('^%s+', ''):gsub('%s+$', '')
+        local ci = (clean_info or ''):gsub('^%s+', ''):gsub('%s+$', '')
+        if ci ~= '' and ci ~= wt and ci:lower() ~= wt:lower()
+            and not wt:find(ci, 1, true) and not ci:find(wt, 1, true) then
+            if wt ~= '' then
+                text = wt .. '\n' .. ci
+            else
+                text = ci
+            end
         else
-            text = waysigns_text
+            text = wt
         end
     else
         text = waysigns.extract_text(meta)
@@ -1020,7 +1024,10 @@ function waysigns.get_sign_data(pos, node, player)
     end
     local has_visual_quickview = qv and qv.items and #qv.items > 0
     if not has_visual_quickview and qv and qv.summary and qv.summary ~= '' then
-        text = text .. '\n' .. qv.summary
+        local sum = qv.summary:gsub('^%s+', ''):gsub('%s+$', '')
+        if sum ~= '' then
+            text = text ~= '' and (text:gsub('%s+$', '') .. '\n' .. sum) or sum
+        end
     end
     local inv_hash = qv and qv.inv_hash or ''
 
@@ -1152,6 +1159,11 @@ function waysigns.get_sign_data(pos, node, player)
         if scale_ar[rx_scale] then
             aspect_ratio = scale_ar[rx_scale]
         end
+    end
+
+    -- Force square aspect ratio when container quickview items are displayed
+    if has_visual_quickview then
+        aspect_ratio = 1.0
     end
 
     -- Support signs_rx dynamic color metadata
@@ -1519,18 +1531,24 @@ function waysigns.get_node_infotext_data(pos, node, player)
 
     local cand
     if has_waysigns and clean_info then
-        if clean_info ~= waysigns_text
-            and clean_info:lower() ~= waysigns_text:lower()
-            and not waysigns_text:find(clean_info, 1, true)
-            and not clean_info:find(waysigns_text, 1, true) then
-            cand = waysigns_text .. '\n' .. clean_info
+        local wt = waysigns_text:gsub('^%s+', ''):gsub('%s+$', '')
+        local ci = clean_info:gsub('^%s+', ''):gsub('%s+$', '')
+        if ci ~= '' and ci ~= wt
+            and ci:lower() ~= wt:lower()
+            and not wt:find(ci, 1, true)
+            and not ci:find(wt, 1, true) then
+            if wt ~= '' then
+                cand = wt .. '\n' .. ci
+            else
+                cand = ci
+            end
         else
-            cand = waysigns_text
+            cand = wt
         end
     elseif has_waysigns then
-        cand = waysigns_text
+        cand = waysigns_text:gsub('^%s+', ''):gsub('%s+$', '')
     elseif clean_info then
-        cand = clean_info
+        cand = clean_info:gsub('^%s+', ''):gsub('%s+$', '')
     else
         return nil
     end
@@ -1559,7 +1577,10 @@ function waysigns.get_node_infotext_data(pos, node, player)
     local has_visual_quickview = qv and qv.items and #qv.items > 0
     local full_cand = cand
     if not has_visual_quickview and qv and qv.summary and qv.summary ~= '' then
-        full_cand = cand .. '\n' .. qv.summary
+        local sum = qv.summary:gsub('^%s+', ''):gsub('%s+$', '')
+        if sum ~= '' then
+            full_cand = cand ~= '' and (cand:gsub('%s+$', '') .. '\n' .. sum) or sum
+        end
     end
 
     local inv_hash = qv and qv.inv_hash or ''
@@ -1603,7 +1624,7 @@ function waysigns.get_node_infotext_data(pos, node, player)
         is_metal = is_metal,
         is_light_bg = is_light_bg,
         text_color = text_color,
-        aspect_ratio = has_waysigns and 1.40 or 1.0,
+        aspect_ratio = has_visual_quickview and 1.0 or (has_waysigns and 1.40 or 1.0),
         wrapped = wrapped,
         is_infotext = true,
         has_inscription = has_waysigns,
