@@ -4067,7 +4067,9 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(fs:find('size%[10.2,9.6%]'), 'Formspec size must be 10.2x9.6')
     assert(fs:find('image%[0.40,0.22;0.50,0.50;waysigns_marker.png%]'), 'Header missing marker icon')
     assert(fs:find('button_exit%[9.40,0.20;0.55,0.55;close_btn;✕%]'), 'Top-right "X" close button missing or not button_exit')
-    assert(fs:find('label%[8.20,1.35;'), 'Formspec missing character counter label')
+    assert(fs:find('Inscription Text %(max 250 chars%):'), 'Formspec missing explicit limit in label (max 250 chars)')
+    assert(fs:find('button%[6.30,1.15;1.20,0.42;check_len;Check%]'), 'Formspec missing Check button')
+    assert(fs:find('label%[7.65,1.35;'), 'Formspec missing character counter label')
     assert(fs:find('0 / 250 chars'), 'Live character counter must display initial 0 / 250 chars')
     assert(fs:find('textarea%[0.50,1.65;9.20,1.85;inscription;;%]'), 'Formspec missing modern textarea')
     assert(fs:find('image_button%[0.50,4.10;1.30,1.05;.-;plaque_sel_default;%]'), 'Default plaque thumbnail swatch missing')
@@ -4131,14 +4133,32 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(glass_plaque_fs:find('image%[4.30,6.05;5.30,1.80;waysigns_sign_glass.png%]'), 'Live preview must update to Glass plaque texture')
     assert(glass_plaque_fs:find('box%[8.35,4.05;1.40,1.15;#ffd700%]'), 'Glass swatch must have golden halo')
 
-    -- 4g. Test character counter warning (>= 90%) and exceeded (> max) colorization
+    -- 4g. Test Check button synchronizes typed text, counter, and live preview on demand
+    receive_cb(owner_player, 'waysigns:inscribe', { check_len = 'Check', inscription = 'Quick Check Preview' })
+    local check_fs = _G.last_shown_formspec.formspec
+    assert(check_fs:find('19 / 250 chars'), 'Check button must synchronize character counter to 19 / 250 chars')
+    assert(check_fs:find('Quick Check Preview'), 'Check button must update live preview with typed text')
+
+    -- 4h. Test character counter warning (>= 90%) and exceeded (> max) colorization
     receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '', inscription = string.rep('x', 225) })
     local warn_fs = _G.last_shown_formspec.formspec
     assert(warn_fs:find('c@#ffd700%)225 / 250 chars'), 'Counter must turn gold (#ffd700) when >= 90% max chars')
 
     receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '', inscription = string.rep('x', 255) })
     local exceed_fs = _G.last_shown_formspec.formspec
-    assert(exceed_fs:find('c@#ff5252%)255 / 250 chars'), 'Counter must turn red (#ff5252) when exceeding max chars')
+    assert(exceed_fs:find('c@#ff5252%)255 / 250 %(Too long!%)'), 'Counter must turn red (#ff5252) and show (Too long!)')
+
+    -- 4i. Test Smart Validation on Save (Option 2A): reject & re-open with warning when exceeding max chars
+    _G.last_chat_message = nil
+    local too_long_text = string.rep('W', 260)
+    receive_cb(owner_player, 'waysigns:inscribe', { save = 'Save Inscription', inscription = too_long_text })
+    local rejected_fs = _G.last_shown_formspec.formspec
+    assert(rejected_fs:find('c@#ff5252%)260 / 250 %(Too long!%)'), 'Editor must re-open with red warning when exceeding max chars on save')
+    assert(_G.last_chat_message ~= nil and _G.last_chat_message.message:find('exceeds maximum length of 250 characters'),
+        'Chat warning must be sent on exceeding max characters on save')
+    local meta_before_save = core.get_meta(target_pos)
+    assert(meta_before_save:get_string('waysigns_text') ~= too_long_text, 'Node metadata must NOT be saved when exceeding limit')
+    assert(owner_player.wielded:get_wear() == 0, 'Wear must NOT be consumed when saving exceeds limit')
 
     -- 5. Test Cancel button closes formspec
     _G.last_closed_formspec = nil

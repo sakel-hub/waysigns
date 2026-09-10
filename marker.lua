@@ -156,12 +156,14 @@ local function build_inscription_formspec(target)
     local current_len = #current_text
 
     local counter_color = '#8e95a5'
+    local counter_text = S('@1 / @2 chars', current_len, max_chars)
     if current_len > max_chars then
         counter_color = '#ff5252'
+        counter_text = S('@1 / @2 (Too long!)', current_len, max_chars)
     elseif current_len >= math.floor(max_chars * 0.9) then
         counter_color = '#ffd700'
     end
-    local counter_str = colorize_text(counter_color, S('@1 / @2 chars', current_len, max_chars))
+    local counter_str = colorize_text(counter_color, counter_text)
 
     local parts = {
         'formspec_version[6]',
@@ -175,6 +177,7 @@ local function build_inscription_formspec(target)
         'style_type[image_button;border=false;content_offset=0]',
         'style_type[label;font=bold]',
         'style[close_btn;bgcolor=#00000000;textcolor=#8e95a5;hovered_textcolor=#ff5252;border=false;font=bold;font_size=18]',
+        'style[check_len;bgcolor=#242834;textcolor=#ffd700;hovered_bgcolor=#33394a;hovered_textcolor=#ffffff;border=false;font=bold;font_size=12]',
         'style[save;bgcolor=#2e7d32;textcolor=#ffffff;hovered_bgcolor=#388e3c;border=false;font=bold]',
         'style[erase;bgcolor=#4a1c1c;textcolor=#ffcdd2;hovered_bgcolor=#6b2626;border=false]',
         'style[cancel;bgcolor=#2c303c;textcolor=#cfd8dc;hovered_bgcolor=#3d4353;border=false]',
@@ -188,9 +191,11 @@ local function build_inscription_formspec(target)
         'button_exit[9.40,0.20;0.55,0.55;close_btn;✕]',
         'tooltip[close_btn;', core.formspec_escape(S('Close')), ']',
 
-        -- Inscription Textarea with Live Character Counter
-        'label[0.50,1.35;', core.formspec_escape(S('Inscription Text:')), ']',
-        'label[8.20,1.35;', core.formspec_escape(counter_str), ']',
+        -- Inscription Textarea with Live Character Counter and Check Button
+        'label[0.50,1.35;', core.formspec_escape(S('Inscription Text (max @1 chars):', max_chars)), ']',
+        'button[6.30,1.15;1.20,0.42;check_len;', core.formspec_escape(S('Check')), ']',
+        'tooltip[check_len;', core.formspec_escape(S('Update character count and live preview')), ']',
+        'label[7.65,1.35;', core.formspec_escape(counter_str), ']',
         'textarea[0.50,1.65;9.20,1.85;inscription;;', core.formspec_escape(current_text), ']',
 
         -- Plaque Material Swatches Section
@@ -487,7 +492,7 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             end
         end
 
-        if changed or swatch_clicked then
+        if changed or swatch_clicked or fields.check_len then
             waysigns.show_inscription_formspec(player, target)
             return
         end
@@ -521,22 +526,31 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             local raw_text = fields.inscription or ''
             local clean_text = waysigns.strip_all_escapes(raw_text)
             local max_chars = waysigns.settings.marker_max_chars or 250
-            if #clean_text > max_chars then
-                clean_text = clean_text:sub(1, max_chars)
-            end
 
-            -- Match plaque option: prefer selected swatch in target.plaque, or check dropdown
+            -- Match plaque option: prefer selected swatch in target.plaque, or check legacy dropdown
             local plaque_key = target.plaque or 'default'
             if fields.plaque then
                 local p = resolve_plaque_key(fields.plaque)
                 if p then plaque_key = p end
             end
+            target.plaque = plaque_key
 
             -- Match color option
             local color_key = target.color or 'white'
             if fields.color then
                 local c = resolve_color_key(fields.color)
                 if c then color_key = c end
+            end
+            target.color = color_key
+
+            -- Validation (Option 2A): reject and re-open editor with alert if exceeding max characters
+            if #clean_text > max_chars then
+                target.text = raw_text
+                waysigns.show_inscription_formspec(player, target)
+                core.chat_send_player(player_name,
+                    S('[WaySigns] Inscription exceeds maximum length of @1 characters (@2 chars). Please shorten it.',
+                      max_chars, #clean_text))
+                return
             end
 
             waysigns.set_node_inscription(pos, clean_text, plaque_key, color_key, player_name)
@@ -600,20 +614,29 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             local raw_text = fields.inscription or ''
             local clean_text = waysigns.strip_all_escapes(raw_text)
             local max_chars = waysigns.settings.marker_max_chars or 250
-            if #clean_text > max_chars then
-                clean_text = clean_text:sub(1, max_chars)
-            end
 
             local plaque_key = target.plaque or 'default'
             if fields.plaque then
                 local p = resolve_plaque_key(fields.plaque)
                 if p then plaque_key = p end
             end
+            target.plaque = plaque_key
 
             local color_key = target.color or 'white'
             if fields.color then
                 local c = resolve_color_key(fields.color)
                 if c then color_key = c end
+            end
+            target.color = color_key
+
+            -- Validation (Option 2A): reject and re-open editor with alert if exceeding max characters
+            if #clean_text > max_chars then
+                target.text = raw_text
+                waysigns.show_inscription_formspec(player, target)
+                core.chat_send_player(player_name,
+                    S('[WaySigns] Inscription exceeds maximum length of @1 characters (@2 chars). Please shorten it.',
+                      max_chars, #clean_text))
+                return
             end
 
             waysigns.set_entity_inscription(obj, clean_text, plaque_key, color_key, player_name)
