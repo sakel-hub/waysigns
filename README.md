@@ -93,6 +93,42 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_quickview_max_slots` | `32` | Maximum number of occupied item slots displayed in quickview dock/grid. |
 | `waysigns_quickview_show_all` | `true` | Display all occupied items in container up to maximum slots in a multi-row grid. |
 | `waysigns_quickview_respect_locks` | `true` | Respect container locks and protection (suppress private inventory contents for non-owners). |
+| `waysigns_enable_marker` | `true` | Enable the Inscription Marker tool (`waysigns:marker`) and craft recipe. |
+| `waysigns_marker_uses` | `100` | Number of inscription uses before the marker wears out (0 = infinite durability). |
+| `waysigns_enable_entity_inspection` | `true` | Allow WaySigns raycasting to detect marked entities and display floating waypoints. |
+| `waysigns_marker_max_chars` | `250` | Maximum character length allowed for custom marker inscriptions. |
+
+---
+
+## Inscription Marker (`waysigns:marker`)
+
+WaySigns provides a handcrafted writing tool—the **Inscription Marker**—allowing players to write custom in-world messages directly onto any solid node or entity (NPCs, statues, carts, mobs, or machinery). When pointed at, WaySigns renders a sleek 3D floating waypoint displaying your inscribed text on top of your chosen plaque style!
+
+### Crafting Recipe
+The Inscription Marker is crafted via a shapeless recipe in any 2x2 or 3x3 crafting grid:
+- 1x Coal Lump (`default:coal_lump`)
+- 1x Steel Ingot (`default:steel_ingot`)
+- 1x Stick (`group:stick`)
+
+### How to Use
+1. Hold the **Inscription Marker** in your hand.
+2. **Right-click** any node or entity within reaching distance.
+3. An interactive inscription dialog opens with:
+   - **Target name**: Shows the node or entity being inscribed.
+   - **Multiline Text Field**: Enter your custom sign or waypoint text (up to 250 characters).
+   - **Plaque Style Dropdown**:
+     - *Default*: Uses the target node's own material texture, or classic wood for entities.
+     - *Wood Plaque*: Warm beveled walnut wood board.
+     - *Steel Plaque*: Polished riveted steel plate.
+     - *Slate Plaque*: Dark brushed slate stone tablet.
+     - *Gold Plaque*: Gilded royal brass/gold plaque.
+     - *Glass Plaque*: Translucent frosted glass backing.
+   - **Text Color Dropdown**: Choose between White, Radiant Gold, Cyan, Emerald Green, Coral Red, or Dark Charcoal text.
+4. Click **Save Inscription** to apply the waypoint. Writing consumes 1 durability use (100 uses by default).
+5. Need to remove a message? Simply click **Erase Inscription** (consumes 0 durability).
+
+### Protection & Anti-Griefing
+- Marker editing strictly respects land protection (`core.is_protected`). Players cannot inscribe or erase nodes/entities in protected areas unless they are granted build permissions or hold the `protection_bypass` privilege.
 
 ---
 

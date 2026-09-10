@@ -44,9 +44,14 @@ core = {
         return (n and n.groups and n.groups[group]) or 0
     end,
     get_meta = function(pos)
+        pos.meta = pos.meta or {}
         return {
             get_string = function(self, key)
                 return pos.meta and pos.meta[key] or ''
+            end,
+            set_string = function(self, key, val)
+                pos.meta = pos.meta or {}
+                pos.meta[key] = val
             end,
             get_inventory = function(self)
                 return pos.inv
@@ -81,6 +86,36 @@ core = {
     register_on_placenode = function() end,
     global_exists = function(name) return _G[name] ~= nil end,
     registered_entities = {},
+    registered_tools = {},
+    register_tool = function(name, def)
+        core.registered_tools[name] = def
+    end,
+    registered_crafts = {},
+    register_craft = function(def)
+        table.insert(core.registered_crafts, def)
+    end,
+    registered_on_player_receive_fields = {},
+    register_on_player_receive_fields = function(cb)
+        table.insert(core.registered_on_player_receive_fields, cb)
+    end,
+    show_formspec = function(player_name, formname, formspec)
+        _G.last_shown_formspec = { player_name = player_name, formname = formname, formspec = formspec }
+    end,
+    close_formspec = function(player_name, formname)
+        _G.last_closed_formspec = { player_name = player_name, formname = formname }
+    end,
+    sound_play = function(sound, spec)
+        _G.last_sound_play = { sound = sound, spec = spec }
+    end,
+    formspec_escape = function(text)
+        return (tostring(text or ''):gsub('\\', '\\\\'):gsub('%[', '\\['):gsub('%]', '\\]'):gsub(';', '\\;'):gsub(',', '\\,'):gsub('$', '\\$'))
+    end,
+    record_protection_violation = function(pos, player_name)
+        _G.last_protection_violation = { pos = pos, player_name = player_name }
+    end,
+    chat_send_player = function(player_name, msg)
+        _G.last_chat_message = { player = player_name, message = msg }
+    end,
     register_lbm = function() end,
     register_chatcommand = function() end,
     register_on_mods_loaded = function(cb) cb() end,
@@ -145,6 +180,44 @@ core = {
         }
     end,
 }
+
+if not ItemStack then
+    ItemStack = function(item)
+        local name = ''
+        local count = 1
+        local wear = 0
+        if type(item) == 'string' then
+            name = item
+        elseif type(item) == 'table' then
+            name = item.name or ''
+            count = item.count or 1
+            wear = item.wear or 0
+        end
+        local stack
+        stack = {
+            name = name,
+            count = count,
+            wear = wear,
+            get_name = function(self) return self.name end,
+            get_count = function(self) return self.count end,
+            get_wear = function(self) return self.wear end,
+            is_empty = function(self) return (self.count or 0) <= 0 or (self.name or '') == '' end,
+            set_count = function(self, c) self.count = c end,
+            add_wear = function(self, amount)
+                self.wear = math.min(65535, self.wear + amount)
+                if self.wear >= 65535 then
+                    self.count = 0
+                    self.name = ''
+                end
+            end,
+            add_wear_by_uses = function(self, max_uses)
+                if max_uses <= 0 then return end
+                self:add_wear(math.floor(65535 / max_uses))
+            end,
+        }
+        return stack
+    end
+end
 
 vector = {
     new = function(x, y, z) return {x = x or 0, y = y or 0, z = z or 0} end,
@@ -240,6 +313,7 @@ end
 
 dofile(script_dir .. '/api.lua')
 dofile(script_dir .. '/compat.lua')
+dofile(script_dir .. '/marker.lua')
 
 print('--- Test 1: wrap_text short text ---')
 local res1 = waysigns.wrap_text('Hello World', 30, 5)
@@ -3764,7 +3838,339 @@ print('--- Test 62: Bounded FIFO cache eviction (MAX_TEXTURE_CACHE & MAX_NODE_CA
     print('PASS Test 62')
 end)()
 
-print('================ ALL 62 UNIT TESTS PASSED ================')
+print('--- Test 63: Node inscription, metadata priority, plaque styles & cache invalidation ---')
+;(function()
+    waysigns.clear_caches()
+    core.registered_nodes['default:stone'] = {
+        description = 'Stone',
+        tiles = { 'default_stone.png' },
+    }
+    local pos = { x = 15, y = 2, z = 35 }
+    local node = { name = 'default:stone', param2 = 0 }
+
+    -- Verify node starts with no inscription
+    local empty_inscr = waysigns.get_node_inscription(pos)
+    assert(empty_inscr == nil, 'Expected no inscription initially')
+
+    -- Inscribe node with custom slate plaque and radiant gold text
+    waysigns.set_node_inscription(pos, "Vault Entrance\nAuthorized Personnel Only", "slate", "gold", "alice")
+
+    -- Verify stored metadata
+    local meta = core.get_meta(pos)
+    assert(meta:get_string('waysigns_text') == "Vault Entrance\nAuthorized Personnel Only", 'Expected waysigns_text')
+    assert(meta:get_string('waysigns_plaque') == 'slate', 'Expected waysigns_plaque slate')
+    assert(meta:get_string('waysigns_color') == 'gold', 'Expected waysigns_color gold')
+    assert(meta:get_string('waysigns_author') == 'alice', 'Expected waysigns_author alice')
+
+    -- Verify helper getter
+    local read_inscr = waysigns.get_node_inscription(pos)
+    assert(read_inscr ~= nil, 'Expected get_node_inscription to return table')
+    assert(read_inscr.text == "Vault Entrance\nAuthorized Personnel Only", 'Text mismatch')
+    assert(read_inscr.plaque == 'slate', 'Plaque mismatch')
+    assert(read_inscr.color == 'gold', 'Color mismatch')
+    assert(read_inscr.author == 'alice', 'Author mismatch')
+
+    -- Verify extract_text priority: waysigns_text overrides any other metadata keys (infotext, text)
+    meta:set_string('infotext', 'Conflicting Infotext')
+    meta:set_string('text', 'Conflicting Text')
+    assert(waysigns.extract_text(meta) == "Vault Entrance\nAuthorized Personnel Only",
+        'waysigns_text must take highest priority in extract_text')
+
+    -- Verify get_sign_data recognizes inscribed ordinary node and applies chosen plaque & color
+    local sign_data = waysigns.get_sign_data(pos, node)
+    assert(sign_data ~= nil, 'get_sign_data should recognize inscribed node')
+    assert(sign_data.tile == 'waysigns_sign_slate.png', 'Expected custom slate plaque texture, got ' .. tostring(sign_data.tile))
+    assert(sign_data.text_color == 0xFFD700, 'Expected gold text color 0xFFD700, got ' .. string.format('0x%06X', sign_data.text_color))
+    assert(sign_data.aspect_ratio == 1.4, 'Expected standard 1.4 plaque aspect ratio')
+
+    -- Test plaque option fallbacks
+    -- 1. Wood plaque
+    waysigns.set_node_inscription(pos, "Wood Sign", "wood", "white", "alice")
+    local wood_data = waysigns.get_sign_data(pos, node)
+    assert(wood_data.tile == 'waysigns_sign_wood.png', 'Expected waysigns_sign_wood.png')
+    assert(wood_data.text_color == 0xFFFFFF, 'Expected white text color')
+
+    -- 2. Steel plaque
+    waysigns.set_node_inscription(pos, "Steel Sign", "steel", "cyan", "alice")
+    local steel_data = waysigns.get_sign_data(pos, node)
+    assert(steel_data.tile == 'waysigns_sign_steel.png', 'Expected waysigns_sign_steel.png')
+    assert(steel_data.text_color == 0x00E5FF, 'Expected cyan text color')
+
+    -- 3. Gold plaque
+    waysigns.set_node_inscription(pos, "Royal Sign", "gold", "green", "alice")
+    local gold_data = waysigns.get_sign_data(pos, node)
+    assert(gold_data.tile == 'waysigns_sign_gold.png', 'Expected waysigns_sign_gold.png')
+    assert(gold_data.text_color == 0x76FF03, 'Expected lime green text color')
+
+    -- 4. Glass plaque
+    waysigns.set_node_inscription(pos, "Glass Notice", "glass", "red", "alice")
+    local glass_data = waysigns.get_sign_data(pos, node)
+    assert(glass_data.tile == 'waysigns_sign_glass.png', 'Expected waysigns_sign_glass.png')
+    assert(glass_data.text_color == 0xFF5252, 'Expected crimson red text color')
+
+    -- 5. Default plaque: falls back to node texture (default_stone.png)
+    waysigns.set_node_inscription(pos, "Default Plaque", "default", "dark", "alice")
+    local def_data = waysigns.get_sign_data(pos, node)
+    assert(def_data.tile == 'default_stone.png', 'Default plaque should use node tile default_stone.png')
+    assert(def_data.text_color == 0x222222, 'Expected dark text color')
+
+    -- Test cache invalidation
+    local hash = core.hash_node_position(pos)
+    assert(waysigns.node_cache[hash] ~= nil, 'get_sign_data should have populated node cache')
+    waysigns.set_node_inscription(pos, "Updated Inscription", "wood", "white", "alice")
+    assert(waysigns.node_cache[hash] == nil, 'set_node_inscription must invalidate node cache')
+
+    print('PASS Test 63')
+end)()
+
+print('--- Test 64: Entity inscription, get_entity_inscription_data & collisionbox waypoint positioning ---')
+;(function()
+    local entity_pos = { x = 50, y = 10, z = 75 }
+    local mock_ent = { name = 'mobs_npc:trader' }
+    local mock_obj = {
+        _is_valid = true,
+        _pos = entity_pos,
+        infotext = '',
+        is_player = function(self) return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function(self)
+            return {
+                collisionbox = { -0.35, 0.0, -0.35, 0.35, 1.8, 0.35 }
+            }
+        end,
+        set_properties = function(self, props)
+            if props.infotext ~= nil then
+                self.infotext = props.infotext
+            end
+        end,
+        get_luaentity = function(self)
+            return mock_ent
+        end,
+    }
+
+    -- Verify entity starts un-inscribed
+    assert(waysigns.get_entity_inscription(mock_obj) == nil, 'Entity should have no inscription initially')
+    assert(waysigns.get_entity_inscription_data(mock_obj) == nil, 'Entity data should be nil without inscription')
+
+    -- Inscribe entity
+    waysigns.set_entity_inscription(mock_obj, "Merchant Bob\nRare Minerals & Potions", "gold", "cyan", "alice")
+
+    -- Verify object internal fields and infotext property
+    assert(mock_obj._waysigns_text == "Merchant Bob\nRare Minerals & Potions", 'Entity _waysigns_text mismatch')
+    assert(mock_obj._waysigns_plaque == 'gold', 'Entity _waysigns_plaque mismatch')
+    assert(mock_obj._waysigns_color == 'cyan', 'Entity _waysigns_color mismatch')
+    assert(mock_obj._waysigns_author == 'alice', 'Entity _waysigns_author mismatch')
+    assert(mock_obj.infotext == "Merchant Bob\nRare Minerals & Potions", 'Entity infotext property should be updated')
+
+    -- Verify get_entity_inscription helper
+    local inscr = waysigns.get_entity_inscription(mock_obj)
+    assert(inscr ~= nil, 'get_entity_inscription returned nil')
+    assert(inscr.text == "Merchant Bob\nRare Minerals & Potions")
+    assert(inscr.plaque == 'gold')
+    assert(inscr.color == 'cyan')
+    assert(inscr.author == 'alice')
+
+    -- Verify get_entity_inscription_data resolution
+    local data = waysigns.get_entity_inscription_data(mock_obj)
+    assert(data ~= nil, 'get_entity_inscription_data returned nil')
+    assert(data.text == "Merchant Bob\nRare Minerals & Potions")
+    assert(data.tile == 'waysigns_sign_gold.png', 'Expected gold plaque tile')
+    assert(data.text_color == 0x00E5FF, 'Expected cyan text color 0x00E5FF')
+    assert(#data.pages == 1, 'Expected 1 page')
+    assert(#data.pages[1] == 2, 'Expected 2 lines on page 1')
+
+    -- Verify 3D waypoint position anchored above entity collisionbox:
+    -- entity_pos.y (10) + collisionbox max_y (1.8) + offset (0.35) = 12.15
+    assert(data.face_pos ~= nil, 'Expected face_pos')
+    assert(data.face_pos.x == 50, 'face_pos x mismatch')
+    assert(math.abs(data.face_pos.y - 12.15) < 0.001, 'Expected face_pos y = 12.15, got ' .. tostring(data.face_pos.y))
+    assert(data.face_pos.z == 75, 'face_pos z mismatch')
+
+    -- Test default plaque for entities (falls back to neutral wood)
+    waysigns.set_entity_inscription(mock_obj, "Default Plaque Entity", "default", "white", "alice")
+    local ent_def_data = waysigns.get_entity_inscription_data(mock_obj)
+    assert(ent_def_data.tile == 'waysigns_sign_wood.png', 'Entity default plaque should fall back to waysigns_sign_wood.png')
+
+    print('PASS Test 64')
+end)()
+
+print('--- Test 65: Marker tool registration, crafting, protection checks & durability ---')
+;(function()
+    -- 1. Tool registration & properties
+    local marker_tool = core.registered_tools['waysigns:marker']
+    assert(marker_tool ~= nil, 'waysigns:marker tool must be registered')
+    assert(marker_tool.inventory_image == 'waysigns_marker.png', 'Marker inventory_image must be waysigns_marker.png')
+    assert(marker_tool.groups and marker_tool.groups.tool == 1, 'Marker must be in tool group')
+
+    -- 2. Shapeless craft recipe registration
+    local found_craft = false
+    for _, craft in ipairs(core.registered_crafts) do
+        if craft.output == 'waysigns:marker' and craft.type == 'shapeless' then
+            local r = craft.recipe
+            assert(#r == 3, 'Craft recipe must have 3 ingredients')
+            assert(r[1] == 'default:coal_lump' and r[2] == 'default:steel_ingot' and r[3] == 'group:stick',
+                'Recipe ingredients must match coal + steel + stick')
+            found_craft = true
+            break
+        end
+    end
+    assert(found_craft, 'Craft recipe for waysigns:marker must be registered')
+
+    -- 3. Area protection enforcement on use
+    local target_pos = { x = 100, y = 20, z = 100 }
+    local pointed_node = { type = 'node', under = target_pos }
+
+    local intruder_player = {
+        name = 'bob_intruder',
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        privs = {},
+    }
+
+    local owner_player = {
+        name = 'alice_owner',
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        privs = {},
+        wielded = ItemStack({ name = 'waysigns:marker', count = 1, wear = 0 }),
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+    }
+
+    _G.last_shown_formspec = nil
+    _G.last_protection_violation = nil
+    local orig_is_protected = core.is_protected
+    core.is_protected = function(pos, player_name)
+        return player_name == 'bob_intruder'
+    end
+
+    -- Bob (intruder) right clicks protected node -> blocked
+    local stack_bob = ItemStack('waysigns:marker')
+    marker_tool.on_place(stack_bob, intruder_player, pointed_node)
+    assert(_G.last_shown_formspec == nil, 'Formspec must NOT open for intruder on protected node')
+    assert(_G.last_protection_violation ~= nil and _G.last_protection_violation.player_name == 'bob_intruder',
+        'Protection violation must be recorded for intruder')
+
+    -- Alice (owner) right clicks -> permitted, formspec opens
+    _G.last_protection_violation = nil
+    marker_tool.on_place(owner_player.wielded, owner_player, pointed_node)
+    assert(_G.last_shown_formspec ~= nil, 'Formspec must open for owner')
+    assert(_G.last_shown_formspec.formname == 'waysigns:inscribe', 'Formname must be waysigns:inscribe')
+    assert(_G.last_shown_formspec.player_name == 'alice_owner', 'Player name mismatch in formspec')
+    assert(_G.last_shown_formspec.formspec:find('textarea%[0.6,1.4;7.8,3.2;inscription;'), 'Formspec missing textarea')
+    assert(_G.last_shown_formspec.formspec:find('dropdown%[0.6,5.4;3.6,0.8;plaque;'), 'Formspec missing plaque dropdown')
+
+    -- 4. Submit formspec: protection check on receive_fields (TOCTOU protection)
+    local receive_cb = core.registered_on_player_receive_fields[1]
+    assert(receive_cb ~= nil, 'receive_fields callback must be registered')
+
+    -- Bob opened formspec before protection was set
+    core.is_protected = function(pos, player_name) return false end
+    marker_tool.on_place(stack_bob, intruder_player, pointed_node)
+    assert(_G.last_shown_formspec ~= nil, 'Formspec opened when area was unprotected')
+
+    -- Area is now protected against Bob
+    core.is_protected = function(pos, player_name) return player_name == 'bob_intruder' end
+    _G.last_protection_violation = nil
+    receive_cb(intruder_player, 'waysigns:inscribe', { save = 'Save Inscription', inscription = 'Hacked!' })
+    assert(_G.last_protection_violation ~= nil and _G.last_protection_violation.player_name == 'bob_intruder',
+        'Submit from intruder on newly-protected node must trigger protection violation')
+
+    -- Alice (owner) re-opens formspec and submits valid inscription
+    marker_tool.on_place(owner_player.wielded, owner_player, pointed_node)
+    _G.last_sound_play = nil
+    local initial_wear = owner_player.wielded:get_wear()
+    assert(initial_wear == 0, 'Initial wear should be 0')
+
+    receive_cb(owner_player, 'waysigns:inscribe', {
+        save = 'Save Inscription',
+        inscription = 'Safe Haven',
+        plaque = 'Steel Plaque',
+        color = 'Warm Gold'
+    })
+
+    -- Verify metadata written
+    local meta = core.get_meta(target_pos)
+    assert(meta:get_string('waysigns_text') == 'Safe Haven', 'waysigns_text should be Safe Haven')
+    assert(meta:get_string('waysigns_plaque') == 'steel', 'waysigns_plaque should be steel')
+    assert(meta:get_string('waysigns_color') == 'gold', 'waysigns_color should be gold')
+    assert(meta:get_string('waysigns_author') == 'alice_owner', 'waysigns_author should be alice_owner')
+
+    -- Verify durability wear applied (1 use out of 100 = 655 wear)
+    local new_wear = owner_player.wielded:get_wear()
+    assert(new_wear == math.floor(65535 / 100), 'Expected 1 use of wear (655), got ' .. new_wear)
+    assert(_G.last_sound_play ~= nil and _G.last_sound_play.sound == 'default_place_node', 'Expected placement sound')
+
+    core.is_protected = orig_is_protected
+    print('PASS Test 65')
+end)()
+
+print('--- Test 66: Inscription erasing & zero durability consumption ---')
+;(function()
+    local target_pos = { x = 110, y = 20, z = 110 }
+    waysigns.set_node_inscription(target_pos, "Temporary Note", "wood", "white", "alice_owner")
+
+    local owner_player = {
+        name = 'alice_owner',
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        privs = {},
+        wielded = ItemStack({ name = 'waysigns:marker', count = 1, wear = 1500 }),
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+    }
+
+    local marker_tool = core.registered_tools['waysigns:marker']
+    local pointed_node = { type = 'node', under = target_pos }
+
+    -- 1. Open formspec on node
+    marker_tool.on_place(owner_player.wielded, owner_player, pointed_node)
+
+    -- 2. Click Erase
+    local receive_cb = core.registered_on_player_receive_fields[1]
+    receive_cb(owner_player, 'waysigns:inscribe', { erase = 'Erase' })
+
+    -- Verify node metadata is cleared
+    local meta = core.get_meta(target_pos)
+    assert(meta:get_string('waysigns_text') == '', 'waysigns_text must be empty string after erase')
+    assert(waysigns.get_node_inscription(target_pos) == nil, 'get_node_inscription must return nil after erase')
+
+    -- Verify tool durability: MUST NOT CONSUME WEAR ON ERASE
+    assert(owner_player.wielded:get_wear() == 1500,
+        'Erasing must consume 0 wear, wear remained ' .. owner_player.wielded:get_wear())
+
+    -- 3. Test entity erasing
+    local mock_obj = {
+        _is_valid = true,
+        _pos = { x = 110, y = 21, z = 110 },
+        infotext = 'Guard Robot',
+        is_player = function(self) return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function(self) return {} end,
+        set_properties = function(self, props) if props.infotext ~= nil then self.infotext = props.infotext end end,
+        get_luaentity = function(self) return { name = 'mobs:guard' } end,
+    }
+    waysigns.set_entity_inscription(mock_obj, "Guard Robot", "steel", "red", "alice_owner")
+    assert(waysigns.get_entity_inscription(mock_obj) ~= nil, 'Entity must have inscription')
+
+    -- Open formspec on entity
+    local pointed_obj = { type = 'object', ref = mock_obj }
+    marker_tool.on_place(owner_player.wielded, owner_player, pointed_obj)
+
+    -- Click Erase
+    receive_cb(owner_player, 'waysigns:inscribe', { erase = 'Erase' })
+
+    -- Verify entity fields and infotext cleared
+    assert(waysigns.get_entity_inscription(mock_obj) == nil, 'Entity inscription must be nil after erase')
+    assert(mock_obj.infotext == '', 'Entity infotext property must be cleared')
+    assert(owner_player.wielded:get_wear() == 1500, 'Erasing entity must consume 0 wear')
+
+    print('PASS Test 66')
+end)()
+
+print('================ ALL 66 UNIT TESTS PASSED ================')
 
 
 
