@@ -80,7 +80,7 @@ waysigns = {
         marker_max_chars = math.max(10, math.min(1000, tonumber(core.settings:get('waysigns_marker_max_chars')) or 250)),
         marker_sense = core.settings:get_bool('waysigns_marker_sense', true),
         marker_sense_range = math.max(2.0, math.min(30.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),
-        marker_sense_max = math.max(1, math.min(20, tonumber(core.settings:get('waysigns_marker_sense_max')) or 6)),
+        marker_sense_max = math.max(1, math.min(20, tonumber(core.settings:get('waysigns_marker_sense_max')) or 12)),
         marker_sense_min_opacity = math.max(0, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_min_opacity')) or 75)),
         marker_sense_max_opacity = math.max(10, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_max_opacity')) or 255)),
     },
@@ -1662,7 +1662,7 @@ function waysigns.update_marker_waypoints(player, state)
     local eye_height = state.eye_height or 1.625
     local eye_pos = { x = player_pos.x, y = player_pos.y + eye_height, z = player_pos.z }
     local sense_range = waysigns.settings.marker_sense_range or 10.0
-    local max_waypoints = waysigns.settings.marker_sense_max or 6
+    local max_waypoints = waysigns.settings.marker_sense_max or 12
 
     local look_dir = player.get_look_dir and player:get_look_dir()
     if not look_dir then
@@ -1762,9 +1762,9 @@ function waysigns.update_marker_waypoints(player, state)
         local cand = candidates[i]
         active_keys[cand.key] = true
 
-        -- Distance-based opacity progression: closer = more transparent, farther = more opaque
+        -- Distance-based opacity progression: close markers have lower translucency (more opaque) and further away markers are progressively more translucent (lower opacity)
         local norm_dist = math.min(1.0, math.max(0.0, (cand.dist - 1.0) / math.max(1.0, sense_range - 1.0)))
-        local raw_opacity = math.floor(min_op + norm_dist * (max_op - min_op))
+        local raw_opacity = math.floor(max_op - norm_dist * (max_op - min_op))
         -- Quantize opacity into steps of 15 to prevent sending redundant network updates
         local opacity = math.min(255, math.max(0, math.floor(raw_opacity / 15) * 15))
         local marker_tex = string.format('waysigns_marker.png^[resize:24x24^[opacity:%d', opacity)

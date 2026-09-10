@@ -4440,12 +4440,13 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
 
     -- Distance-based opacity progression check:
     -- Node at (15, 2, 15) is ~5.09m away from player eye; entity at (17, 2, 12) is ~2.96m away
+    -- Closer markers have lower translucency (higher opacity); distant markers are progressively more translucent (lower opacity)
     local node_tex = sense_player.hud_adds[wp_node.hud_id].text
     local ent_tex = sense_player.hud_adds[wp_ent.hud_id].text
     local node_op = tonumber(node_tex:match('%^%[opacity:(%d+)'))
     local ent_op = tonumber(ent_tex:match('%^%[opacity:(%d+)'))
     assert(node_op ~= nil and ent_op ~= nil, 'Waypoints must have opacity modifier in texture string')
-    assert(node_op > ent_op, string.format('More distant waypoint (op=%d) must be more opaque than closer waypoint (op=%d)', node_op, ent_op))
+    assert(ent_op > node_op, string.format('Closer waypoint (op=%d) must have lower translucency (more opaque) than distant waypoint (op=%d)', ent_op, node_op))
 
     -- View direction / FOV turnaround check:
     -- Add an inscribed node behind player (player is at 15, 2, 10, looking +Z)
@@ -4471,10 +4472,11 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     assert(pstate.marker_waypoints['15,2,5'] == nil, 'Target behind hidden again')
     waysigns.on_dignode(p_behind)
 
-    -- Cap active proximity waypoints to nearest N targets (default 6)
+    -- Cap active proximity waypoints to nearest N targets (default 12)
+    assert(waysigns.settings.marker_sense_max == 12, 'Default marker_sense_max must be 12')
     local cap_test_positions = {}
-    for i = 1, 8 do
-        local p_cap = { x = 11 + i, y = 2, z = 13 }
+    for i = 1, 14 do
+        local p_cap = { x = 8 + i, y = 2, z = 13 }
         waysigns.set_node_inscription(p_cap, 'Cap Node ' .. i, 'wood', 'white', 'tester')
         table.insert(cap_test_positions, p_cap)
     end
@@ -4485,6 +4487,7 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     end
     assert(active_count <= waysigns.settings.marker_sense_max,
         string.format('Active waypoints count (%d) must not exceed marker_sense_max (%d)', active_count, waysigns.settings.marker_sense_max))
+    assert(active_count == 12, string.format('Expected exactly 12 active waypoints when capped, got %d', active_count))
     for _, p_cap in ipairs(cap_test_positions) do
         waysigns.on_dignode(p_cap)
     end
