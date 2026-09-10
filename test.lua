@@ -5924,9 +5924,162 @@ print('--- Test 83: Silent protection checks without chat spam and TTL caching -
     print('PASS Test 83')
 end)()
 
--- [Test 84 deferred to owner color feature]
+;(function()
+    print('--- Test 84: Owner-Colored Scribe Sense Waypoints ---')
+    local orig_los = core.line_of_sight
+    local orig_get_objs = core.get_objects_inside_radius
+    local orig_setting = waysigns.settings.marker_sense_owner_color
+    waysigns.settings.marker_sense_owner_color = true
 
-print('================ ALL 83 UNIT TESTS PASSED ================')
+    core.line_of_sight = function() return true end
+
+    -- Register test nodes
+    local p_alice = { x = 20, y = 5, z = 25 }
+    local p_bob = { x = 22, y = 5, z = 25 }
+    waysigns.set_node_inscription(p_alice, 'Alice Note', 'gold', 'white', 'alice')
+    waysigns.set_node_inscription(p_bob, 'Bob Note', 'wood', 'white', 'bob')
+
+    -- Register test entities
+    local ent_alice_table = {
+        _waysigns_text = 'Alice Pet',
+        _waysigns_plaque = 'default',
+        _waysigns_color = 'white',
+        _waysigns_author = 'alice',
+    }
+    local mock_ent_alice = {
+        _is_valid = true,
+        _pos = { x = 20, y = 5, z = 24 },
+        is_player = function() return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function() return {} end,
+        get_luaentity = function() return ent_alice_table end,
+    }
+
+    local ent_bob_table = {
+        _waysigns_text = 'Bob Pet',
+        _waysigns_plaque = 'default',
+        _waysigns_color = 'white',
+        _waysigns_author = 'bob',
+    }
+    local mock_ent_bob = {
+        _is_valid = true,
+        _pos = { x = 22, y = 5, z = 24 },
+        is_player = function() return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function() return {} end,
+        get_luaentity = function() return ent_bob_table end,
+    }
+
+    core.get_objects_inside_radius = function()
+        return { mock_ent_alice, mock_ent_bob }
+    end
+
+    local alice_player = {
+        name = 'alice',
+        pos = { x = 21, y = 5, z = 20 },
+        look_dir = { x = 0, y = 0, z = 1 },
+        wielded = ItemStack({ name = 'waysigns:marker', count = 1 }),
+        hud_adds = {},
+        hud_removes = {},
+        hud_changes = {},
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function(self) return self.pos end,
+        get_look_dir = function(self) return self.look_dir end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_wielded_item = function(self) return self.wielded end,
+        hud_add = function(self, def)
+            table.insert(self.hud_adds, def)
+            return #self.hud_adds
+        end,
+        hud_remove = function(self, id)
+            table.insert(self.hud_removes, id)
+        end,
+        hud_change = function(self, id, stat, val)
+            table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+        end,
+    }
+
+    local pstate = waysigns.get_or_create_player_state(alice_player)
+    waysigns.update_marker_waypoints(alice_player, pstate)
+
+    -- 1. Check node waypoints
+    local wp_alice_node = pstate.marker_waypoints['20,5,25']
+    local wp_bob_node = pstate.marker_waypoints['22,5,25']
+    assert(wp_alice_node ~= nil, 'Alice node waypoint must exist')
+    assert(wp_bob_node ~= nil, 'Bob node waypoint must exist')
+
+    local tex_alice_node = alice_player.hud_adds[wp_alice_node.hud_id].text
+    local tex_bob_node = alice_player.hud_adds[wp_bob_node.hud_id].text
+
+    assert(not tex_alice_node:find('silver'),
+        'Alice node waypoint must use unchanged gold texture for owner: ' .. tostring(tex_alice_node))
+    assert(tex_alice_node:find('waysigns_waypoint.png%^%[opacity:'),
+        'Alice node waypoint must use base texture with opacity modifier')
+    assert(tex_bob_node:find('waysigns_waypoint_silver.png%^%[opacity:'),
+        'Bob node waypoint must use silver texture for non-owner: ' .. tostring(tex_bob_node))
+
+    -- 2. Check entity waypoints
+    local ent_alice_key = 'ent_' .. tostring(mock_ent_alice)
+    local ent_bob_key = 'ent_' .. tostring(mock_ent_bob)
+    local wp_alice_ent = pstate.marker_waypoints[ent_alice_key]
+    local wp_bob_ent = pstate.marker_waypoints[ent_bob_key]
+    assert(wp_alice_ent ~= nil, 'Alice entity waypoint must exist')
+    assert(wp_bob_ent ~= nil, 'Bob entity waypoint must exist')
+
+    local tex_alice_ent = alice_player.hud_adds[wp_alice_ent.hud_id].text
+    local tex_bob_ent = alice_player.hud_adds[wp_bob_ent.hud_id].text
+
+    assert(not tex_alice_ent:find('silver'),
+        'Alice entity waypoint must use unchanged gold texture for owner: ' .. tostring(tex_alice_ent))
+    assert(tex_alice_ent:find('waysigns_waypoint.png%^%[opacity:'),
+        'Alice entity waypoint must use base texture with opacity modifier')
+    assert(tex_bob_ent:find('waysigns_waypoint_silver.png%^%[opacity:'),
+        'Bob entity waypoint must use silver texture for non-owner: ' .. tostring(tex_bob_ent))
+
+    -- 3. Dynamic setting toggle: turning off marker_sense_owner_color should update other player's HUD text to plain gold
+    waysigns.settings.marker_sense_owner_color = false
+    alice_player.hud_changes = {}
+    waysigns.update_marker_waypoints(alice_player, pstate)
+
+    local found_change_to_plain = false
+    for _, ch in ipairs(alice_player.hud_changes) do
+        if ch.id == wp_bob_node.hud_id and ch.stat == 'text' then
+            assert(not ch.val:find('silver'), 'Disabled setting must revert other player to base gold texture')
+            assert(ch.val:find('waysigns_waypoint.png%^%[opacity:'), 'Must retain base gold texture with opacity')
+            found_change_to_plain = true
+        end
+    end
+    assert(found_change_to_plain, 'Must trigger hud_change to update texture when owner color is disabled')
+
+    -- 4. Dynamic setting toggle: turning on marker_sense_owner_color should restore silver HUD text on other player's marker
+    waysigns.settings.marker_sense_owner_color = true
+    alice_player.hud_changes = {}
+    waysigns.update_marker_waypoints(alice_player, pstate)
+
+    local found_change_to_silver = false
+    for _, ch in ipairs(alice_player.hud_changes) do
+        if ch.id == wp_bob_node.hud_id and ch.stat == 'text' then
+            assert(ch.val:find('waysigns_waypoint_silver.png%^%[opacity:'), 'Re-enabled setting must re-apply silver texture')
+            found_change_to_silver = true
+        end
+    end
+    assert(found_change_to_silver, 'Must trigger hud_change to update texture when owner color is re-enabled')
+
+    -- Cleanup
+    waysigns.set_node_inscription(p_alice, '', '', '', '')
+    waysigns.set_node_inscription(p_bob, '', '', '', '')
+    core.line_of_sight = orig_los
+    core.get_objects_inside_radius = orig_get_objs
+    waysigns.settings.marker_sense_owner_color = orig_setting
+    waysigns.remove_marker_waypoints(alice_player, pstate)
+    print('PASS Test 84')
+end)()
+
+print('================ ALL 84 UNIT TESTS PASSED ================')
 
 
 

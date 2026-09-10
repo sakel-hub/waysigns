@@ -3,7 +3,7 @@
 ![WaySigns Screenshot](screenshot.png)
 
 > [!NOTE]
-> **Signs Are Not Included**: WaySigns does not add new signs or sign nodes to the game. If you need signs to place in your world, please install any standard signs mod (such as `default` signs in Luanti Game / default, `signs_lib`, `basic_signs`, `street_signs`, `display_modpack`, `signs_rx`, `mcl_signs`, etc.). WaySigns enhances your gameplay by eliminating lag-inducing text entities from those mods and providing high-performance, accessible in-world HUD sign reading.
+> **Sign Nodes Are Not Included**: WaySigns does not add physical sign blocks or wall-mounted sign nodes to the game. To place traditional wall or post signs in your world, please install any standard signs mod (such as `default` signs in Luanti Game, `signs_lib`, `basic_signs`, `street_signs`, `display_modpack`, `signs_rx`, `mcl_signs`, etc.). However, WaySigns includes the **Inscription Marker** tool to write directly onto any solid node or entity. WaySigns enhances your gameplay by eliminating lag-inducing text entities from sign mods and providing high-performance, accessible in-world HUD reading overlays.
 
 **WaySigns** is a lightweight, immersive sign-reading mod for Luanti. When a player points their crosshair at a sign from within 4.5 blocks distance, the sign's text dynamically appears as an in-world 3D HUD waypoint floating smoothly in front of the sign, rendered on top of a dynamic plaque background derived from the sign's own wood or metal texture!
 
@@ -12,7 +12,7 @@
 ## Features
 
 - **In-World HUD Waypoint**: Anchored directly in front of the sign face in 3D world space, maintaining natural immersion.
-- **Dynamic Background Texture**: Automatically tiles the sign's base texture (wood, steel, or modded tree wood) with a dark contrast glaze and beveled plaque border with brass/steel corner rivets.
+- **Dynamic Background Texture**: Automatically tiles the sign's base texture (wood, steel, or modded tree wood) with a dark contrast glaze and beveled plaque border.
 - **Smooth Fade In / Fade Out**: Smoothly animates into view when looked at and fades out when looking away.
 - **Proximity Detection**: Activates when looking directly at the sign from up to 4.5 blocks away.
 - **Smart Text Formatting & Long Texts**:
@@ -83,8 +83,8 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_max_chars_per_line` | `30` | Maximum characters per line before word wrapping. |
 | `waysigns_max_lines` | `5` | Maximum visible lines per page. |
 | `waysigns_auto_scroll` | `true` | Automatically cycle pages for long texts. |
-| `waysigns_scroll_delay` | `5.0` | Seconds before advancing to the next page. |
-| `waysigns_show_frame` | `true` | Show beveled plaque frame and corner rivets. |
+| `waysigns_scroll_delay` | `4.0` | Seconds before advancing to the next page. |
+| `waysigns_show_frame` | `true` | Show beveled plaque frame. |
 | `waysigns_enable_node_infotext` | `true` | Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces). |
 | `waysigns_infotext_scale` | `2.0` | HUD overlay and typography scaling multiplier for nodes with infotext. |
 | `waysigns_infotext_pos_y_offset` | `0.35` | Vertical position offset in blocks for node infotext waypoints relative to node center. |
@@ -99,8 +99,10 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_marker_sense` | `true` | Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes/entities when wielding the marker tool. |
 | `waysigns_marker_sense_range` | `10.0` | Maximum detection radius in blocks (meters) when holding the marker tool. |
 | `waysigns_marker_sense_max` | `12` | Maximum simultaneous marker waypoint glyphs displayed at once around the player. |
+| `waysigns_marker_sense_scale` | `4.0` | Scale multiplier for 3D marker waypoint glyphs in Scribe Sense. |
 | `waysigns_marker_sense_min_opacity` | `75` | Minimum opacity (0-255) for marker waypoint glyphs at maximum distance (more translucent). |
 | `waysigns_marker_sense_max_opacity` | `255` | Maximum opacity (0-255) for marker waypoint glyphs at close proximity (lower translucency, more solid). |
+| `waysigns_marker_sense_owner_color` | `true` | Differentiate Scribe Sense waypoint beacons: personal markers retain the original gilded texture (`waysigns_waypoint.png`), while other players' markers use polished silver (`waysigns_waypoint_silver.png`) with identical diamond blue stone. |
 
 ---
 
@@ -111,6 +113,7 @@ WaySigns provides a handcrafted writing tool—the **Inscription Marker**—allo
 ### Scribe Sense (Marker-Wield Proximity Waypoints)
 When holding the **Inscription Marker** in your active hotbar slot, **Scribe Sense** awakens:
 - Small, unobtrusive 3D waypoint glyphs (`image_waypoint`) hover over nearby inscribed nodes and entities within 10 meters.
+- **Owner Recognition Colorization**: Waypoint markers placed or inscribed by you retain their rich, original gilded beacon texture (`waysigns_waypoint.png`), while markers from other players display a sleek polished silver texture (`waysigns_waypoint_silver.png`) with the exact same radiant diamond blue gem preserved in the center, allowing you to instantly identify your own trail and milestones at a glance.
 - **View-Direction & FOV Filtering**: Waypoints are prioritized based on where the player is looking. When the maximum simultaneous waypoint cap (default 12) is reached, turning your character reveals newly visible in-sight targets while cleanly hiding targets turning behind you.
 - **Distance-Based Opacity Progression**: Close markers have lower translucency (more solid and opaque), while further away markers are progressively more translucent (subtle, non-intrusive background indicators). Opacity is quantized into steps of 15 to ensure zero network packet waste.
 - **Direct Gaze Harmony**: When looking directly at an inscribed sign, its small marker waypoint automatically suppresses so the full plaque HUD takes center stage without visual clutter.
@@ -125,7 +128,8 @@ The Inscription Marker is crafted via a shapeless recipe in any 2x2 or 3x3 craft
 
 ### How to Use
 1. Hold the **Inscription Marker** in your hand.
-2. **Right-click** any node or entity within reaching distance.
+2. **Left-click** (punch) any node or entity within reaching distance to open the inscription editor.
+   *(You can also **Right-click** any non-interactive block, or hold **Sneak + Right-click** on interactive blocks like chests, furnaces, bookshelves, or machines to inscribe them without opening their menu!)*
 3. An interactive inscription dialog opens with:
    - **Target name**: Shows the node or entity being inscribed.
    - **Multiline Text Field**: Enter your custom sign or waypoint text (up to 250 characters) with real-time live character counting.

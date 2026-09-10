@@ -30,9 +30,9 @@ waysigns_max_lines (Max Visible Lines) int 5 2 10
 waysigns_auto_scroll (Auto Scroll Long Texts) bool true
 
 # Delay in seconds before advancing to the next page of long text.
-waysigns_scroll_delay (Scroll Delay) float 5.0 1.0 15.0
+waysigns_scroll_delay (Scroll Delay) float 4.0 1.0 15.0
 
-# Show decorative plaque border and corner rivets around the dynamic texture background.
+# Show decorative beveled plaque frame border around the dynamic texture background.
 waysigns_show_frame (Show Decorative Frame) bool true
 
 # Completely disable and remove attached text entities from 3rd party sign mods (signs_lib, basic_signs, etc.).
@@ -110,3 +110,10 @@ waysigns_marker_sense_min_opacity (Marker Waypoint Min Opacity) int 75 0 255
 
 # Maximum opacity (0 to 255) for marker waypoint glyphs at close proximity (lower translucency, more solid).
 waysigns_marker_sense_max_opacity (Marker Waypoint Max Opacity) int 255 50 255
+
+# Scale multiplier for in-world marker waypoint beacon icons when holding the marker tool.
+# Default 4.0 scales the 16x16 icon to 64x64 pixels on screen for clear, bold visibility across all displays.
+waysigns_marker_sense_scale (Marker Waypoint Scale) float 4.0 1.0 10.0
+
+# Keep Scribe Sense waypoint beacons in their original gilded texture (waysigns_waypoint.png) for your own inscriptions, while displaying a polished silver texture (waysigns_waypoint_silver.png) with an identical diamond blue gemstone for other players' markers.
+waysigns_marker_sense_owner_color (Differentiate Scribe Sense Waypoint Owners) bool true
