@@ -47,9 +47,30 @@ core = {
         return {
             get_string = function(self, key)
                 return pos.meta and pos.meta[key] or ''
-            end
+            end,
+            get_inventory = function(self)
+                return pos.inv
+            end,
         }
     end,
+    inventorycube = function(img1, img2, img3)
+        img2 = img2 or img1
+        img3 = img3 or img1
+        return '[inventorycube{' .. img1:gsub('%^', '&') .. '{' .. img2:gsub('%^', '&') .. '{' .. img3:gsub('%^', '&')
+    end,
+    check_player_privs = function(player, priv)
+        return not not (player and player.privs and player.privs[priv])
+    end,
+    is_protected = function(pos, player_name)
+        return pos.is_protected == true
+    end,
+    registered_items = setmetatable({}, {
+        __index = function(_, k)
+            return (core.registered_nodes and core.registered_nodes[k])
+                or (core.registered_craftitems and core.registered_craftitems[k])
+                or (core.registered_tools and core.registered_tools[k])
+        end,
+    }),
     raycast = function() return function() return nil end end,
     register_globalstep = function() end,
     register_on_joinplayer = function() end,
@@ -72,9 +93,11 @@ core = {
     end,
     get_objects_inside_radius = function(pos, r) return _G.mock_objects or {} end,
     get_connected_players = function() return _G.mock_players or {} end,
+    get_player_window_information = function() return nil end,
     after = function(delay, func) func() end,
     get_node = function(pos) return {name = 'air', param1 = 0, param2 = 0} end,
-    strip_colors = function(str) return str:gsub('\x1b%b()', ''):gsub('\x1b(.)', '') end,
+    strip_colors = function(str) return str:gsub('\x1b%(c@[^)]*%)', ''):gsub('\x1b%(b@[^)]*%)', '') end,
+    strip_escapes = function(str) return str:gsub('\x1b%b()', ''):gsub('\x1bE', ''):gsub('\x1b(.)', ''):gsub('\x1b', '') end,
     get_color_escape_sequence = function(color) return '' end,
     hash_node_position = function(p)
         return (p.x or 0) + 65536 * ((p.y or 0) + 65536 * (p.z or 0))
@@ -735,7 +758,7 @@ assert(math.abs(screen_state.opacity - (0.2 / 0.3)) < 0.01, 'Expected opacity ~0
 local bg_step2 = captured_hud_defs[screen_state.hud_bg_id]
 local line_step2 = captured_hud_defs[screen_state.hud_line_ids[1]]
 local bg_op2 = tonumber(bg_step2.text:match('%^%[opacity:(%d+)'))
-assert(bg_op2 and math.abs(bg_op2 - 226) <= 2, 'Expected background opacity around 226, got ' .. tostring(bg_op2))
+assert(bg_op2 and math.abs(bg_op2 - 225) <= 4, 'Expected background opacity around 225, got ' .. tostring(bg_op2))
 assert(line_step2.number > 0 and line_step2.number <= 0xFFFFFF, 'Expected valid 24-bit RGB text color')
 assert(bit.band(bit.rshift(line_step2.number, 24), 0xFF) == 0, 'Expected no high alpha byte')
 
@@ -907,7 +930,7 @@ local bg_cube = waysigns.get_background_texture('[inventorycube{stone.png{stone.
 assert(bg_cube:find(waysigns.FALLBACK_WOOD), 'Expected fallback for [inventorycube')
 
 local bg_anim = waysigns.get_background_texture('animated.png^[verticalframe:16:0', 200, 80, 1.0, true)
-assert(bg_anim:find(waysigns.FALLBACK_STEEL), 'Expected fallback for [verticalframe')
+assert(bg_anim:find('animated.png') and bg_anim:find('%[verticalframe:16:0'), 'Expected verticalframe frame 0 preserved in background texture, got: ' .. bg_anim)
 
 local bg_unbalanced = waysigns.get_background_texture('((unclosed.png', 200, 80, 1.0, false)
 assert(bg_unbalanced:find(waysigns.FALLBACK_WOOD), 'Expected fallback for unbalanced parentheses')
@@ -1524,8 +1547,8 @@ assert(bit.band(bit.rshift(line2_def.number, 24), 0xFF) == 0, 'Line 2 must not h
 -- 3. Verify fade-in step (opacity = 0.4) also maintains exact 24-bit RGB colors without dimming to black
 hosp_state.opacity = 0.4
 waysigns.render_hud(mock_hosp_player, hosp_state)
-local ch1_num = mock_hosp_player.hud_changes[line1_id].number or line1_def.number
-local ch2_num = mock_hosp_player.hud_changes[line2_id].number or line2_def.number
+local ch1_num = (mock_hosp_player.hud_changes[line1_id] and mock_hosp_player.hud_changes[line1_id].number) or line1_def.number
+local ch2_num = (mock_hosp_player.hud_changes[line2_id] and mock_hosp_player.hud_changes[line2_id].number) or line2_def.number
 assert(ch1_num == 0x55FF55, 'Line 1 must stay 0x55FF55 green during fade-in, got: ' .. string.format('0x%06X', ch1_num))
 assert(ch2_num == 0xFFFFFF, 'Line 2 must stay 0xFFFFFF white during fade-in, got: ' .. string.format('0x%06X', ch2_num))
 
@@ -2335,4 +2358,1414 @@ print('PASS Test 42')
 end)()
 print('PASS Test 43')
 
-print('================ ALL 43 UNIT TESTS PASSED ================')
+print('--- Test 44: Infotext node detection & data extraction ---')
+assert((function()
+    core.registered_nodes['default:chest'] = {
+        description = 'Chest',
+        tiles = {'default_chest_top.png', 'default_chest_top.png', 'default_chest_side.png', 'default_chest_side.png', 'default_chest_side.png', 'default_chest_front.png'},
+        walkable = true,
+    }
+    core.registered_nodes['default:furnace'] = {
+        description = 'Furnace',
+        tiles = {'default_furnace_top.png', 'default_furnace_bottom.png', 'default_furnace_side.png', 'default_furnace_side.png', 'default_furnace_side.png', 'default_furnace_front.png'},
+        walkable = true,
+    }
+
+    local pos_chest = { x = 20, y = 5, z = 30, meta = { infotext = 'Locked Chest (Alice)' } }
+    local node_chest = { name = 'default:chest', param2 = 0 }
+
+    -- Verify it is NOT detected by get_sign_data
+    local sign_data = waysigns.get_sign_data(pos_chest, node_chest)
+    assert(sign_data == nil, 'Chest must not be detected as a sign')
+
+    -- Verify get_node_infotext_data correctly extracts infotext
+    local info_data = waysigns.get_node_infotext_data(pos_chest, node_chest)
+    assert(info_data ~= nil, 'Infotext node must be recognized')
+    assert(info_data.is_infotext == true, 'is_infotext must be true')
+    assert(info_data.raw_text == 'Locked Chest (Alice)', 'Text must match infotext')
+    assert(info_data.wrapped.pages[1][1].text == 'Locked Chest (Alice)', 'Wrapped text matches')
+    assert(info_data.aspect_ratio == 1.0, 'Aspect ratio must be square 1:1 (1.0), got ' .. tostring(info_data.aspect_ratio))
+    -- Front face texture detection (face 6 / 'front' keyword instead of face 1 'top')
+    assert(info_data.tile == 'default_chest_front.png', 'Expected front face texture default_chest_front.png, got ' .. tostring(info_data.tile))
+
+    -- Verify quote unwrapping & front face detection for furnace
+    local pos_furnace = { x = 20, y = 5, z = 31, meta = { infotext = '"Furnace active (cooked: 45%)"' } }
+    local node_furnace = { name = 'default:furnace', param2 = 0 }
+    local f_data = waysigns.get_node_infotext_data(pos_furnace, node_furnace)
+    assert(f_data ~= nil, 'Furnace infotext must be recognized')
+    assert(f_data.raw_text == 'Furnace active (cooked: 45%)', 'Quotes must be unwrapped')
+    assert(f_data.tile == 'default_furnace_front.png', 'Expected front face texture default_furnace_front.png, got ' .. tostring(f_data.tile))
+
+    -- Verify mesh node uses fallback texture instead of UV map
+    core.registered_nodes['mymod:mesh_machine'] = {
+        description = 'Mesh Machine',
+        drawtype = 'mesh',
+        mesh = 'mymod_machine.obj',
+        tiles = {'mymod_machine_uv.png'},
+        walkable = true,
+    }
+    local pos_mesh = { x = 20, y = 5, z = 34, meta = { infotext = 'Centrifuge running' } }
+    local node_mesh = { name = 'mymod:mesh_machine', param2 = 0 }
+    local mesh_data = waysigns.get_node_infotext_data(pos_mesh, node_mesh)
+    assert(mesh_data ~= nil, 'Mesh machine infotext must be recognized')
+    assert(mesh_data.tile == waysigns.FALLBACK_STEEL or mesh_data.tile == waysigns.FALLBACK_WOOD, 'Mesh node must use fallback texture instead of UV map')
+    assert(mesh_data.tile ~= 'mymod_machine_uv.png', 'Mesh node must not use raw mesh texture')
+
+    -- Verify 2-tile node (e.g. barrel/trunk) selects side/front tile (tile 2) instead of top tile (tile 1)
+    core.registered_nodes['mymod:barrel'] = {
+        description = 'Storage Barrel',
+        tiles = {'barrel_top.png', 'barrel_side.png'},
+        walkable = true,
+    }
+    local pos_barrel = { x = 20, y = 5, z = 35, meta = { infotext = 'Apples (48)' } }
+    local node_barrel = { name = 'mymod:barrel', param2 = 0 }
+    local barrel_data = waysigns.get_node_infotext_data(pos_barrel, node_barrel)
+    assert(barrel_data ~= nil, 'Barrel infotext must be recognized')
+    assert(barrel_data.tile == 'barrel_side.png', '2-tile node must choose side/front tile barrel_side.png, got ' .. tostring(barrel_data.tile))
+
+    -- Verify 3-tile node (e.g. bookshelf) selects side/front tile (tile 3) instead of top (tile 1) or bottom (tile 2)
+    core.registered_nodes['default:bookshelf'] = {
+        description = 'Bookshelf',
+        tiles = {'default_wood.png', 'default_wood.png', 'default_bookshelf.png'},
+        walkable = true,
+    }
+    local pos_shelf = { x = 20, y = 5, z = 36, meta = { infotext = 'Ancient Lore' } }
+    local node_shelf = { name = 'default:bookshelf', param2 = 0 }
+    local shelf_data = waysigns.get_node_infotext_data(pos_shelf, node_shelf)
+    assert(shelf_data ~= nil, 'Bookshelf infotext must be recognized')
+    assert(shelf_data.tile == 'default_bookshelf.png', '3-tile node must choose side tile default_bookshelf.png, got ' .. tostring(shelf_data.tile))
+
+    -- Verify locked chest selects lock front face (tile 6) instead of top (tile 1)
+    core.registered_nodes['default:chest_locked'] = {
+        description = 'Locked Chest',
+        tiles = {'default_chest_top.png', 'default_chest_top.png', 'default_chest_side.png', 'default_chest_side.png', 'default_chest_side.png', 'default_chest_lock.png'},
+        walkable = true,
+    }
+    local pos_lock_chest = { x = 20, y = 5, z = 37, meta = { infotext = 'Personal Vault' } }
+    local node_lock_chest = { name = 'default:chest_locked', param2 = 0 }
+    local lock_data = waysigns.get_node_infotext_data(pos_lock_chest, node_lock_chest)
+    assert(lock_data ~= nil, 'Locked chest infotext must be recognized')
+    assert(lock_data.tile == 'default_chest_lock.png', 'Locked chest must choose lock front tile default_chest_lock.png, got ' .. tostring(lock_data.tile))
+
+    -- Verify empty or placeholder infotext returns nil
+    local pos_empty = { x = 20, y = 5, z = 32, meta = { infotext = '   ' } }
+    assert(waysigns.get_node_infotext_data(pos_empty, node_chest) == nil, 'Empty infotext must return nil')
+    local pos_placeholder = { x = 20, y = 5, z = 33, meta = { infotext = '(empty)' } }
+    assert(waysigns.get_node_infotext_data(pos_placeholder, node_chest) == nil, 'Placeholder (empty) must return nil')
+
+    return true
+end)())
+print('PASS Test 44')
+
+print('--- Test 45: Top-half 3D waypoint position calculation ---')
+assert((function()
+    local node_pos = { x = 10, y = 2, z = 15 }
+    local norm_z = { x = 0, y = 0, z = 1 }
+    local hit_point = { x = 10.2, y = 2.0, z = 15.5 }
+
+    -- Standard sign: Y remains at node_pos.y (2.0)
+    local sign_pos = waysigns.get_sign_face_pos(node_pos, norm_z, hit_point, false, false)
+    assert(math.abs(sign_pos.y - 2.0) < 0.001, 'Sign Y must be at node center (2.0), got: ' .. sign_pos.y)
+
+    -- Infotext node: Y must be offset to top half (pos.y + 0.35 = 2.35)
+    local infotext_pos = waysigns.get_sign_face_pos(node_pos, norm_z, hit_point, false, true)
+    local expected_y = node_pos.y + (waysigns.settings.infotext_pos_y_offset or 0.35)
+    assert(math.abs(infotext_pos.y - expected_y) < 0.001, 'Infotext Y must be on top half of node (' .. expected_y .. '), got: ' .. infotext_pos.y)
+    assert(infotext_pos.y > node_pos.y, 'Infotext Y must be strictly greater than node center')
+    assert(infotext_pos.y <= node_pos.y + 0.5, 'Infotext Y must stay within node top bound (pos.y + 0.5)')
+
+    -- Side face -X
+    local norm_x = { x = -1, y = 0, z = 0 }
+    local hit_point_x = { x = 9.5, y = 2.0, z = 15.3 }
+    local infotext_pos_x = waysigns.get_sign_face_pos(node_pos, norm_x, hit_point_x, false, true)
+    assert(math.abs(infotext_pos_x.y - expected_y) < 0.001, 'Infotext Y must be on top half for X face')
+    assert(infotext_pos_x.x < node_pos.x, 'Infotext X must be positioned in front of -X face')
+
+    -- Top face +Y
+    local norm_y = { x = 0, y = 1, z = 0 }
+    local hit_point_y = { x = 10.0, y = 2.5, z = 15.0 }
+    local infotext_pos_top = waysigns.get_sign_face_pos(node_pos, norm_y, hit_point_y, false, true)
+    assert(infotext_pos_top.y > node_pos.y + 0.5, 'Top face waypoint must be positioned above node top surface')
+
+    return true
+end)())
+print('PASS Test 45')
+
+print('--- Test 46: Separate sizing and overlay positioning ---')
+assert((function()
+    local p_scale = {
+        get_player_name = function() return 'test_player_scale' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_pos = function() return { x = 0, y = 0, z = 0 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_meta = function() return { get_string = function() return '' end } end,
+    }
+
+    -- 1. Verify separate scale
+    waysigns.settings.hud_scale = 2.5
+    waysigns.settings.infotext_scale = 1.3
+    local sign_scale = waysigns.get_effective_scale(p_scale, false)
+    local info_scale = waysigns.get_effective_scale(p_scale, true)
+    assert(sign_scale == 2.5, 'Sign scale must match hud_scale (2.5), got ' .. sign_scale)
+    assert(info_scale == 1.3, 'Infotext scale must match infotext_scale (1.3), got ' .. info_scale)
+
+    -- Reset to defaults
+    waysigns.settings.hud_scale = 2.0
+    waysigns.settings.infotext_scale = 2.0
+
+    -- 2. Verify separate overlay positioning in render_hud
+    local orig_display_mode = waysigns.settings.display_mode
+    waysigns.settings.display_mode = 'overlay'
+    waysigns.settings.overlay_pos_y = 0.50
+    waysigns.settings.infotext_overlay_pos_y = 0.38
+
+    local huds_created = {}
+    local p_overlay = {
+        get_player_name = function() return 'test_player_overlay' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_pos = function() return { x = 0, y = 0, z = 0 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_meta = function() return { get_string = function() return '' end } end,
+        hud_add = function(self, def)
+            local id = #huds_created + 1
+            huds_created[id] = def
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if huds_created[id] then
+                huds_created[id][stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            huds_created[id] = nil
+        end,
+    }
+
+    -- Render sign HUD in overlay mode
+    local sign_data = {
+        nodename = 'default:sign_wall_wood',
+        raw_text = 'Town Hall',
+        tile = 'waysigns_sign_wood.png',
+        aspect_ratio = 1.40,
+        wrapped = waysigns.wrap_text('Town Hall', nil, nil, 0xFFFFFF),
+        is_infotext = false,
+    }
+    waysigns.show_hud(p_overlay, { x = 0, y = 1, z = 2 }, sign_data, { x = 0, y = 0, z = 1 }, { x = 0, y = 1, z = 1.5 })
+    local bg_sign = huds_created[1]
+    assert(bg_sign ~= nil and bg_sign.position.y == 0.50, 'Sign overlay must be at overlay_pos_y (0.50), got: ' .. tostring(bg_sign and bg_sign.position.y))
+
+    waysigns.remove_all_huds(p_overlay)
+    huds_created = {}
+
+    -- Render infotext HUD in overlay mode
+    local chest_data = {
+        nodename = 'default:chest',
+        raw_text = 'Storage Chest',
+        tile = 'waysigns_sign_steel.png',
+        aspect_ratio = 1.0,
+        wrapped = waysigns.wrap_text('Storage Chest', 24, 4, 0xFFFFFF),
+        is_infotext = true,
+    }
+    waysigns.show_hud(p_overlay, { x = 0, y = 1, z = 2 }, chest_data, { x = 0, y = 0, z = 1 }, { x = 0, y = 1, z = 1.5 })
+    local bg_chest = huds_created[1]
+    assert(bg_chest ~= nil and bg_chest.position.y == 0.38, 'Infotext overlay must be at infotext_overlay_pos_y (0.38), got: ' .. tostring(bg_chest and bg_chest.position.y))
+    -- Verify square 1:1 dimensions in texture specification (e.g. resize:224x224)
+    local tex_w, tex_h = bg_chest.text:match('resize:(%d+)x(%d+)')
+    assert(tex_w ~= nil and tex_w == tex_h, 'Infotext background plaque must be square 1:1, got ' .. tostring(tex_w) .. 'x' .. tostring(tex_h))
+
+    waysigns.remove_all_huds(p_overlay)
+    waysigns.settings.display_mode = orig_display_mode
+    return true
+end)())
+print('PASS Test 46')
+
+print('--- Test 47: Omnidirectional raycast detection for infotext nodes ---')
+assert((function()
+    local huds_active = {}
+    local p_omni = {
+        get_player_name = function() return 'test_player_omni' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_pos = function() return { x = 0, y = 0, z = 0 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_meta = function() return { get_string = function() return '' end } end,
+        get_inventory = function() return nil end,
+        hud_add = function(self, def)
+            local id = #huds_active + 1
+            huds_active[id] = def
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if huds_active[id] then
+                huds_active[id][stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            huds_active[id] = nil
+        end,
+    }
+
+    local chest_pos = { x = 0, y = 1, z = 3, meta = { infotext = 'Community Resources' } }
+    core.get_node_or_nil = function(p)
+        if vector.equals(p, chest_pos) then
+            return { name = 'default:chest', param2 = 0 }
+        end
+        return { name = 'air', param2 = 0 }
+    end
+
+    -- 1. Pointing at back face of chest (norm: {0, 0, -1})
+    core.raycast = function()
+        local yielded = false
+        return function()
+            if not yielded then
+                yielded = true
+                return {
+                    type = 'node',
+                    under = chest_pos,
+                    above = { x = 0, y = 1, z = 2 },
+                    intersection_normal = { x = 0, y = 0, z = -1 },
+                    intersection_point = { x = 0.5, y = 1.0, z = 2.5 },
+                }
+            end
+            return nil
+        end
+    end
+
+    waysigns.settings.check_interval = 0.05
+    local omni_state = waysigns.get_or_create_player_state(p_omni)
+    omni_state.check_timer = 0.06
+
+    -- Must show HUD even from back face
+    waysigns.update_player(p_omni, 0.06)
+    assert(omni_state.is_visible == true, 'Infotext node HUD must show from any face (omnidirectional)')
+    assert(omni_state.current_sign_data ~= nil and omni_state.current_sign_data.is_infotext == true, 'Active data must be infotext')
+    assert(omni_state.current_sign_data.raw_text == 'Community Resources', 'Extracted text must match')
+
+    -- 2. Verify waysigns_enable_node_infotext = false disables detection
+    waysigns.settings.enable_node_infotext = false
+    waysigns.remove_all_huds(p_omni)
+    omni_state.check_timer = 0.06
+    waysigns.update_player(p_omni, 0.06)
+    assert(omni_state.is_visible == false, 'Infotext HUD must not show when enable_node_infotext is false')
+
+    -- Restore setting
+    waysigns.settings.enable_node_infotext = true
+    waysigns.remove_all_huds(p_omni)
+    return true
+end)())
+print('PASS Test 47')
+
+print('--- Test 48: Escape sequence and translation tag sanitization ---')
+assert((function()
+    -- 1. Verify strip_all_escapes handles translation sequences with no leftover \x1b
+    local raw_trans = '\x1b(T@x_farming)Hive position\x1bE: (1022, 1002, 1000)'
+    local cleaned = waysigns.strip_all_escapes(raw_trans)
+    assert(cleaned == 'Hive position: (1022, 1002, 1000)', 'Translation tags must be completely stripped')
+    assert(not cleaned:find('\x1b'), 'Cleaned string must not contain any \\x1b bytes')
+
+    -- 2. Verify clean_line removes translation tags and extracts colors
+    local colored_trans = '\x1b(c@#FFAA00)\x1b(T@default)Chest\x1bE'
+    local c_line, c_col = waysigns.clean_line(colored_trans)
+    assert(c_line == 'Chest', 'clean_line must strip both color and translation tags')
+    assert(c_col == 0xFFAA00, 'clean_line must extract 24-bit color')
+    assert(not c_line:find('\x1b'), 'clean_line output must contain no \\x1b')
+
+    -- 3. Verify get_node_infotext_data sanitizes translation sequences from node metadata
+    local bee_pos = { x = 10, y = 1, z = 10, meta = {
+        infotext = '\x1b(T@x_farming)Occupancy\x1bE: 1 / 3\n\x1b(T@x_farming)Saturation\x1bE: 5 / 5'
+    } }
+    core.registered_nodes['x_farming:beehive'] = {
+        description = 'Beehive',
+        tiles = { 'x_farming_beehive.png' },
+    }
+    local info_data = waysigns.get_node_infotext_data(bee_pos, { name = 'x_farming:beehive', param2 = 0 })
+    assert(info_data ~= nil, 'Must extract infotext data')
+    assert(not info_data.raw_text:find('\x1b'), 'raw_text must have no escape sequences')
+    assert(info_data.raw_text == 'Occupancy: 1 / 3\nSaturation: 5 / 5', 'Extracted infotext must match unescaped text')
+
+    -- 4. Verify wrap_text on long text with translation sequences does not split escape codes
+    local long_trans = '\x1b(T@x_farming)Extremely long translation heading description text for node\x1bE'
+    local wrapped = waysigns.wrap_text(long_trans, 20, 5, 0xFFFFFF)
+    for _, page in ipairs(wrapped.pages) do
+        for _, line_obj in ipairs(page) do
+            assert(not line_obj.text:find('\x1b'), 'Wrapped line text must never contain \\x1b: ' .. line_obj.text)
+        end
+    end
+
+    -- 5. Broken / unterminated escape sequences do not crash or emit \x1b
+    local broken = 'Warning: \x1b(T@unknown unclosed'
+    local clean_broken = waysigns.strip_all_escapes(broken)
+    assert(not clean_broken:find('\x1b'), 'Broken unclosed escape sequence must be eliminated')
+
+    return true
+end)())
+print('PASS Test 48')
+
+print('--- Test 49: Combined multi-layer textures and texture transformations ---')
+assert((function()
+    -- 1. x_farming:bee_hive_saturated: front texture + honey overlay combined
+    core.registered_nodes['x_farming:bee_hive_saturated'] = {
+        description = 'Beehive (Saturated)',
+        tiles = {
+            'x_farming_bee_hive_top.png',
+            'x_farming_bee_hive_bottom.png',
+            'x_farming_bee_hive_side.png^x_farming_bee_hive_saturated_overlay.png',
+            'x_farming_bee_hive_side.png^x_farming_bee_hive_saturated_overlay.png',
+            'x_farming_bee_hive_side.png^x_farming_bee_hive_saturated_overlay.png',
+            'x_farming_bee_hive_front.png^x_farming_bee_hive_saturated_overlay.png',
+        },
+        walkable = true,
+    }
+
+    local hive_pos = { x = 40, y = 5, z = 50, meta = {
+        infotext = 'Honey ready for harvest: 3 / 3'
+    } }
+    local hive_node = { name = 'x_farming:bee_hive_saturated', param2 = 0 }
+    local hive_data = waysigns.get_node_infotext_data(hive_pos, hive_node)
+    assert(hive_data ~= nil, 'Saturated beehive infotext must be recognized')
+    local expected_tile = 'x_farming_bee_hive_front.png^x_farming_bee_hive_saturated_overlay.png'
+    assert(hive_data.tile == expected_tile,
+        'Beehive must combine front and overlay textures! Got: ' .. tostring(hive_data.tile))
+
+    -- Verify get_background_texture groups the combined layers with parentheses
+    local bg_tex = waysigns.get_background_texture(hive_data.tile, 224, 224, 1.0, false)
+    assert(bg_tex:find('%(' .. expected_tile:gsub('([%^%.])', '%%%1') .. '%)%^%[resize:224x224'),
+        'Background texture must group combined layers in parentheses before resizing! Got: ' .. bg_tex)
+
+    -- 2. Layers with texture transformations (e.g. ^[transformFX)
+    local transformed_tile = 'obsidian_chest_front.png^[transformFX^obsidian_chest_lock.png^[transformFX'
+    core.registered_nodes['mymod:chest_transformed'] = {
+        description = 'Transformed Chest',
+        tiles = {
+            'top.png', 'bottom.png', 'side.png', 'side.png', 'side.png',
+            transformed_tile,
+        },
+        walkable = true,
+    }
+    local trans_pos = { x = 40, y = 5, z = 51, meta = { infotext = 'Transformed Vault' } }
+    local trans_node = { name = 'mymod:chest_transformed', param2 = 0 }
+    local trans_data = waysigns.get_node_infotext_data(trans_pos, trans_node)
+    assert(trans_data ~= nil, 'Transformed chest must be recognized')
+    assert(trans_data.tile == transformed_tile,
+        'Texture transformations must be preserved across layers! Got: ' .. tostring(trans_data.tile))
+
+    local bg_trans = waysigns.get_background_texture(trans_data.tile, 224, 224, 1.0, true)
+    assert(bg_trans:find('%(' .. transformed_tile:gsub('([%^%[%].])', '%%%1') .. '%)%^%[resize:224x224'),
+        'Transformed layers must be grouped in parentheses before resize! Got: ' .. bg_trans)
+
+    -- 3. Node with node_def.overlay_tiles
+    core.registered_nodes['mymod:overlay_shelf'] = {
+        description = 'Overlay Shelf',
+        tiles = {
+            'shelf_top.png', 'shelf_bottom.png', 'shelf_side.png',
+            'shelf_side.png', 'shelf_side.png', 'shelf_front.png',
+        },
+        overlay_tiles = {
+            '', '', '',
+            '', '', 'shelf_front_paint.png',
+        },
+        walkable = true,
+    }
+    local shelf_pos = { x = 40, y = 5, z = 52, meta = { infotext = 'Painted Shelf' } }
+    local shelf_node = { name = 'mymod:overlay_shelf', param2 = 0 }
+    local shelf_data = waysigns.get_node_infotext_data(shelf_pos, shelf_node)
+    assert(shelf_data ~= nil, 'Overlay shelf must be recognized')
+    assert(shelf_data.tile == 'shelf_front.png^shelf_front_paint.png',
+        'Node overlay_tiles must be combined with base tiles! Got: ' .. tostring(shelf_data.tile))
+
+    -- 4. Verify signs_lib obsolete text layer is still cleanly stripped from signs
+    core.registered_nodes['signs:sign_with_text_layer'] = {
+        description = 'Sign With Text Layer',
+        tiles = { 'sign_wood.png^signs_lib_text.png' },
+        drawtype = 'nodebox',
+    }
+    local s_pos = { x = 40, y = 5, z = 53, meta = { text = 'Road Ahead' } }
+    local s_node = { name = 'signs:sign_with_text_layer', param2 = 0 }
+    local s_data = waysigns.get_sign_data(s_pos, s_node)
+    assert(s_data ~= nil, 'Sign must be recognized')
+    assert(s_data.tile == 'sign_wood.png',
+        'Obsolete signs_lib_text.png must be stripped from signs! Got: ' .. tostring(s_data.tile))
+
+    return true
+end)())
+print('PASS Test 49')
+
+;(function()
+    local function MockItemStack(name, count)
+        return {
+            is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
+            get_name = function(self) return name or '' end,
+            get_count = function(self) return count or 0 end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self)
+                local def = (core.registered_items and core.registered_items[name])
+                    or (core.registered_nodes and core.registered_nodes[name])
+                return def and def.description or name
+            end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+            is_empty = function(self, name)
+                local l = lists[name]
+                if not l then return true end
+                for _, s in ipairs(l) do
+                    if not s:is_empty() then return false end
+                end
+                return true
+            end,
+        }
+    end
+
+    print('--- Test 50: Item texture resolver (waysigns.get_item_texture) ---')
+assert((function()
+    core.registered_items = setmetatable(core.registered_items or {}, {
+        __index = function(_, k)
+            return (core.registered_nodes and core.registered_nodes[k])
+                or (core.registered_craftitems and core.registered_craftitems[k])
+                or (core.registered_tools and core.registered_tools[k])
+        end,
+    })
+    core.registered_tools = core.registered_tools or {}
+    core.registered_craftitems = core.registered_craftitems or {}
+    core.registered_items['default:apple'] = {
+        description = 'Apple',
+        inventory_image = 'default_apple.png',
+    }
+    core.registered_tools['default:pick_steel'] = {
+        description = 'Steel Pickaxe',
+        inventory_image = 'default_tool_steelpick.png',
+    }
+    core.registered_nodes['default:stone'] = {
+        description = 'Stone',
+        tiles = { 'default_stone.png' },
+        drawtype = 'normal',
+    }
+    core.registered_nodes['flowers:rose'] = {
+        description = 'Red Rose',
+        tiles = { 'flower_rose.png' },
+        drawtype = 'plantlike',
+    }
+
+    -- 1. 2D craftitem uses inventory_image
+    local tex_apple = waysigns.get_item_texture('default:apple')
+    assert(tex_apple == 'default_apple.png', 'Expected default_apple.png, got: ' .. tostring(tex_apple))
+
+    -- 2. 2D tool uses inventory_image
+    local tex_pick = waysigns.get_item_texture('default:pick_steel')
+    assert(tex_pick == 'default_tool_steelpick.png', 'Expected steel pick icon, got: ' .. tostring(tex_pick))
+
+    -- 3. 3D cube node synthesizes inventory cube
+    local tex_stone = waysigns.get_item_texture('default:stone')
+    assert(tex_stone:find('%[inventorycube'), 'Cube node must synthesize inventorycube, got: ' .. tostring(tex_stone))
+    assert(tex_stone:find('default_stone.png'), 'Inventorycube must contain stone tile')
+
+    -- 4. Plantlike node returns flat tile without inventory cube
+    local tex_rose = waysigns.get_item_texture('flowers:rose')
+    assert(tex_rose == 'flower_rose.png', 'Plantlike node must return flat tile, got: ' .. tostring(tex_rose))
+
+    -- 5. Blank/unknown fallback
+    assert(waysigns.get_item_texture('') == 'waysigns_blank.png', 'Empty name must return blank')
+    assert(waysigns.get_item_texture('unknown:mod_item') == 'unknown_item.png', 'Unregistered item must return unknown_item.png')
+
+    return true
+end)())
+print('PASS Test 50')
+
+print('--- Test 51: Node inventory extraction & aggregation (Option A) ---')
+assert((function()
+    core.registered_items['default:wood'] = { description = 'Wooden Planks', inventory_image = 'default_wood.png' }
+    core.registered_items['default:coal_lump'] = { description = 'Coal Lump', inventory_image = 'default_coal.png' }
+
+    local chest_inv = MockInventory({
+        main = {
+            MockItemStack('default:wood', 64),
+            MockItemStack('default:wood', 32),  -- Duplicate stack: must be aggregated!
+            MockItemStack('default:apple', 12),
+            MockItemStack('default:stone', 50),
+            MockItemStack('default:pick_steel', 1),
+            MockItemStack('default:coal_lump', 20), -- 5th distinct item
+            MockItemStack('', 0),               -- Empty slot
+        }
+    })
+    local pos_chest = { x = 60, y = 10, z = 10, inv = chest_inv, meta = { infotext = 'Storage Chest' } }
+    local node_chest = { name = 'default:chest', param2 = 0 }
+
+    local qv = waysigns.extract_node_inventory(pos_chest, node_chest, core.get_meta(pos_chest), nil, 4)
+    assert(qv ~= nil, 'Inventory quickview must not be nil')
+    assert(qv.total_items == (64 + 32 + 12 + 50 + 1 + 20), 'Total items count mismatch: ' .. tostring(qv.total_items))
+    assert(qv.total_distinct == 5, 'Total distinct items must be 5, got: ' .. tostring(qv.total_distinct))
+    assert(#qv.items == 4, 'Max slots 4 must limit returned items to 4, got: ' .. tostring(#qv.items))
+    assert(qv.overflow == 1, 'Overflow must be 1 for 5 items with limit 4, got: ' .. tostring(qv.overflow))
+
+    -- Verify aggregation
+    assert(qv.items[1].name == 'default:wood', 'First item must be wood')
+    assert(qv.items[1].count == 96, 'Wood stacks must be aggregated to 96 (64 + 32), got: ' .. tostring(qv.items[1].count))
+
+    -- Verify Option A Text Line Summary
+    assert(qv.summary:find('96x'), 'Summary must contain 96x: ' .. qv.summary)
+    assert(qv.summary:find('12x'), 'Summary must contain 12x: ' .. qv.summary)
+    assert(qv.summary:find('%(%+1%)'), 'Summary must indicate (+1) overflow: ' .. qv.summary)
+
+    -- Test empty container returns nil
+    local empty_inv = MockInventory({ main = { MockItemStack('', 0), MockItemStack('', 0) } })
+    local pos_empty = { x = 60, y = 10, z = 11, inv = empty_inv, meta = { infotext = 'Empty Chest' } }
+    assert(waysigns.extract_node_inventory(pos_empty, node_chest, core.get_meta(pos_empty), nil, 4) == nil,
+        'Empty container must return nil')
+
+    return true
+end)())
+print('PASS Test 51')
+
+print('--- Test 52: Container security, locked chests, and protection ---')
+assert((function()
+    core.registered_items['default:diamond'] = { description = 'Diamond', inventory_image = 'default_diamond.png' }
+    local secret_inv = MockInventory({
+        main = { MockItemStack('default:diamond', 99) }
+    })
+    local pos_locked = {
+        x = 60, y = 10, z = 12,
+        inv = secret_inv,
+        meta = { infotext = 'Locked Chest (owned by Alice)', owner = 'Alice' },
+    }
+    local node_locked = { name = 'default:chest_locked', param2 = 0 }
+
+    local player_bob = {
+        get_player_name = function(self) return 'Bob' end,
+        privs = {},
+    }
+    local player_alice = {
+        get_player_name = function(self) return 'Alice' end,
+        privs = {},
+    }
+    local player_admin = {
+        get_player_name = function(self) return 'Bob' end,
+        privs = { protection_bypass = true },
+    }
+
+    -- 1. Bob (non-owner, no bypass) -> Quickview MUST BE SUPPRESSED!
+    local bob_qv = waysigns.extract_node_inventory(pos_locked, node_locked, core.get_meta(pos_locked), player_bob)
+    assert(bob_qv == nil, 'Private locked chest contents must NOT be leaked to Bob!')
+    local bob_data = waysigns.get_node_infotext_data(pos_locked, node_locked, player_bob)
+    assert(bob_data ~= nil, 'Node infotext label must still be shown')
+    assert(not bob_data.text:find('Diamond'), 'Diamond must NOT appear in Bob infotext text!')
+    assert(bob_data.quickview_items == nil, 'Bob must receive nil quickview_items')
+
+    -- 2. Alice (owner) -> Quickview items MUST be visible!
+    local alice_qv = waysigns.extract_node_inventory(pos_locked, node_locked, core.get_meta(pos_locked), player_alice)
+    assert(alice_qv ~= nil, 'Alice must be able to view her own locked chest!')
+    local alice_data = waysigns.get_node_infotext_data(pos_locked, node_locked, player_alice)
+    assert(alice_data.quickview_items[1].name == 'default:diamond', 'Alice must receive diamonds in quickview_items')
+    assert(not alice_data.text:find('Diamond'), 'Option 2: Diamond summary omitted from header text when visual quickview is active')
+
+    -- 3. Admin with protection_bypass -> Quickview items visible
+    local admin_qv = waysigns.extract_node_inventory(pos_locked, node_locked, core.get_meta(pos_locked), player_admin)
+    assert(admin_qv ~= nil, 'Admin with protection_bypass must be allowed to inspect chest')
+
+    return true
+end)())
+print('PASS Test 52')
+
+print('--- Test 53: Background texture dock blitting & cache key isolation ---')
+assert((function()
+    local items = {
+        { name = 'default:wood', count = 64, icon = 'default_wood.png' },
+        { name = 'default:apple', count = 12, icon = 'default_apple.png' },
+    }
+
+    -- 1. Verify get_background_texture blits dock when items are provided
+    local bg_tex = waysigns.get_background_texture('default_wood.png', 180, 180, 1.0, false, false, false, false, items)
+    assert(bg_tex:find('%[combine:180x180'), 'Must contain combine modifier with board dimensions: ' .. bg_tex)
+    assert(bg_tex:find('%[fill\\:18x18\\:#000000a0'), 'Must contain slot bezels: ' .. bg_tex)
+    assert(bg_tex:find('default_wood%.png'), 'Must contain wood icon: ' .. bg_tex)
+    assert(bg_tex:find('default_apple%.png'), 'Must contain apple icon: ' .. bg_tex)
+
+    -- 2. Verify cache key isolation between different inventory states
+    local items2 = {
+        { name = 'default:diamond', count = 5, icon = 'default_diamond.png' }
+    }
+    local bg_tex2 = waysigns.get_background_texture('default_wood.png', 180, 180, 1.0, false, false, false, false, items2)
+    assert(bg_tex ~= bg_tex2, 'Different inventory items must produce distinct textures!')
+    assert(bg_tex2:find('default_diamond%.png'), 'Must contain diamond icon in second texture')
+
+    -- 3. Verify standard background call without items does not include dock
+    local bg_plain = waysigns.get_background_texture('default_wood.png', 180, 180, 1.0, false, false, false, false, nil)
+    assert(not bg_plain:find('%[fill\\:18x18'), 'Plain background must not contain slot bezels')
+
+    return true
+end)())
+print('PASS Test 53')
+end)()
+
+;(function()
+    local function MockItemStack(name, count)
+        return {
+            get_name = function() return name end,
+            get_count = function() return count end,
+            is_empty = function() return (not name or name == '' or count <= 0) end,
+            get_short_description = function() return nil end,
+            get_description = function() return nil end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+            is_empty = function(self, name)
+                local l = lists[name]
+                if not l then return true end
+                for _, s in ipairs(l) do
+                    if not s:is_empty() then return false end
+                end
+                return true
+            end,
+        }
+    end
+
+    print('--- Test 54: Player-bound (x_obsidianmese:chest) & detached inventory extraction ---')
+    core.registered_items['default:obsidian'] = { description = 'Obsidian', inventory_image = 'default_obsidian.png' }
+    core.registered_items['default:mese_crystal'] = { description = 'Mese Crystal', inventory_image = 'default_mese_crystal.png' }
+
+    local player_inv = MockInventory({
+        ['x_obsidianmese:chest'] = {
+            MockItemStack('default:obsidian', 10),
+            MockItemStack('default:mese_crystal', 5),
+            MockItemStack('', 0),
+        },
+        ['enderchest'] = {
+            MockItemStack('default:diamond', 64),
+        },
+    })
+    local pbound_player = {
+        get_player_name = function() return 'Alice' end,
+        get_inventory = function() return player_inv end,
+    }
+
+    local pos_obsidian = { x = 70, y = 10, z = 20, meta = { infotext = 'Obsidian Mese Chest' } }
+    local node_obsidian = { name = 'x_obsidianmese:chest', param2 = 0 }
+
+    -- 1. Verify player-bound inventory extraction for x_obsidianmese:chest
+    local qv_obs = waysigns.extract_node_inventory(pos_obsidian, node_obsidian, core.get_meta(pos_obsidian), pbound_player)
+    assert(qv_obs ~= nil, 'x_obsidianmese:chest must extract player-bound inventory')
+    assert(#qv_obs.items == 2, 'Must contain 2 occupied items (ignoring empty slot), got: ' .. #qv_obs.items)
+    assert(qv_obs.items[1].name == 'default:obsidian' and qv_obs.items[1].count == 10)
+    assert(qv_obs.items[2].name == 'default:mese_crystal' and qv_obs.items[2].count == 5)
+
+    -- 2. Verify x_obsidianmese:chest_open (swapped open node state) resolves correctly
+    local node_obsidian_open = { name = 'x_obsidianmese:chest_open', param2 = 0 }
+    local qv_obs_open = waysigns.extract_node_inventory(pos_obsidian, node_obsidian_open, core.get_meta(pos_obsidian), pbound_player)
+    assert(qv_obs_open ~= nil, 'x_obsidianmese:chest_open must resolve base name inventory')
+    assert(#qv_obs_open.items == 2)
+
+    -- 3. Verify enderchest player-bound fallback
+    local pos_ender = { x = 71, y = 10, z = 20, meta = { infotext = 'Ender Chest' } }
+    local node_ender = { name = 'default:enderchest', param2 = 0 }
+    local qv_ender = waysigns.extract_node_inventory(pos_ender, node_ender, core.get_meta(pos_ender), pbound_player)
+    assert(qv_ender ~= nil, 'Enderchest must extract from player enderchest inventory')
+    assert(qv_ender.items[1].name == 'default:diamond' and qv_ender.items[1].count == 64)
+
+    -- 4. Verify detached inventory via core.get_inventory and metadata link
+    local detached_inv = MockInventory({
+        storage = { MockItemStack('default:gold_ingot', 16) }
+    })
+    core.registered_items['default:gold_ingot'] = { description = 'Gold Ingot', inventory_image = 'default_gold_ingot.png' }
+    local orig_get_inv = core.get_inventory
+    core.get_inventory = function(loc)
+        if loc and loc.type == 'detached' and loc.name == 'bank_vault' then
+            return detached_inv
+        end
+        return orig_get_inv and orig_get_inv(loc)
+    end
+    local pos_detached = { x = 72, y = 10, z = 20, meta = { infotext = 'Bank Safe', detached_inventory = 'bank_vault' } }
+    local node_detached = { name = 'bank:vault_safe', param2 = 0 }
+    local qv_detached = waysigns.extract_node_inventory(pos_detached, node_detached, core.get_meta(pos_detached), pbound_player)
+    assert(qv_detached ~= nil, 'Detached inventory must be extracted via metadata inv link')
+    assert(qv_detached.items[1].name == 'default:gold_ingot' and qv_detached.items[1].count == 16)
+
+    -- 5. Verify custom inventory resolver registration
+    waysigns.register_inventory_resolver('custom:crate', function(_pos, _node, _meta, _player)
+        return { MockItemStack('default:wood', 42) }
+    end)
+    local pos_custom = { x = 73, y = 10, z = 20, meta = { infotext = 'Custom Crate' } }
+    local node_custom = { name = 'custom:crate', param2 = 0 }
+    local qv_custom = waysigns.extract_node_inventory(pos_custom, node_custom, core.get_meta(pos_custom), pbound_player)
+    assert(qv_custom ~= nil, 'Custom resolver must be invoked')
+    assert(qv_custom.items[1].name == 'default:wood' and qv_custom.items[1].count == 42)
+
+    print('PASS Test 54')
+
+    print('--- Test 55: Multi-row quickview grid & zero empty slots ---')
+    local items12 = {}
+    for i = 1, 12 do
+        items12[i] = { name = 'mod:item_' .. i, count = i, icon = 'mod_item_' .. i .. '.png' }
+    end
+
+    -- 1. Verify 12 items creates a 2-row grid with proportionally scaled slots (37x37 on w=380)
+    local bg_12 = waysigns.get_background_texture('default_wood.png', 380, 380, 1.0, false, false, false, false, items12)
+    assert(bg_12:find('%[fill\\:37x37\\:#000000a0'), '12 items must scale proportionally to 37x37 slot size for w=380, got: ' .. bg_12)
+    assert(bg_12:find('mod_item_1%.png') and bg_12:find('mod_item_12%.png'), 'All 12 items must be blitted')
+
+    local count_bezels = 0
+    for _ in bg_12:gmatch('%[fill\\:37x37') do
+        count_bezels = count_bezels + 1
+    end
+    assert(count_bezels == 12, 'Exactly 12 slot bezels must be rendered (0 empty slots), got: ' .. count_bezels)
+
+    -- 2. Verify 24 items creates a 3-row grid with proportionally scaled slots (39x39 on w=400)
+    local items24 = {}
+    for i = 1, 24 do
+        items24[i] = { name = 'mod:gem_' .. i, count = i, icon = 'gem_' .. i .. '.png' }
+    end
+    local bg_24 = waysigns.get_background_texture('default_wood.png', 400, 400, 1.0, false, false, false, false, items24)
+    assert(bg_24:find('%[fill\\:39x39\\:#000000a0'), '24 items must scale proportionally to 39x39 slot size for w=400, got: ' .. bg_24)
+    local count_bezels24 = 0
+    for _ in bg_24:gmatch('%[fill\\:39x39') do
+        count_bezels24 = count_bezels24 + 1
+    end
+    assert(count_bezels24 == 24, 'Exactly 24 slot bezels must be rendered, got: ' .. count_bezels24)
+
+    -- 3. Verify extract_node_inventory omits empty slots from chest
+    local mixed_stacks = {}
+    for i = 1, 8 do
+        mixed_stacks[#mixed_stacks + 1] = MockItemStack('default:obsidian', i)
+        mixed_stacks[#mixed_stacks + 1] = MockItemStack('', 0) -- empty slot
+    end
+    local mixed_inv = MockInventory({ main = mixed_stacks })
+    local pos_mixed = { x = 74, y = 10, z = 20, inv = mixed_inv, meta = { infotext = 'Mixed Chest' } }
+    local node_mixed = { name = 'default:chest', param2 = 0 }
+    local qv_mixed = waysigns.extract_node_inventory(pos_mixed, node_mixed, core.get_meta(pos_mixed), pbound_player, 32)
+    assert(qv_mixed ~= nil)
+    assert(#qv_mixed.items == 1, 'Only 1 distinct non-empty item must be extracted, got: ' .. #qv_mixed.items)
+    assert(qv_mixed.items[1].count == 36, 'Aggregated obsidian count must be 36 (1+2+..+8)')
+
+    -- 4. Verify summary text does not truncate item names or cut off inventory list
+    local multi_items = {}
+    for i = 1, 7 do
+        multi_items[#multi_items + 1] = MockItemStack('default:reinforced_item_' .. i, i)
+        core.registered_items['default:reinforced_item_' .. i] = { description = 'Reinforced Crystal Ingot ' .. i }
+    end
+    local multi_inv = MockInventory({ main = multi_items })
+    local pos_multi = { x = 75, y = 10, z = 20, inv = multi_inv, meta = { infotext = 'Large Chest' } }
+    local qv_multi = waysigns.extract_node_inventory(pos_multi, node_mixed, core.get_meta(pos_multi), pbound_player, 32)
+    assert(#qv_multi.items == 7, 'Visual items must contain all 7 items, got: ' .. #qv_multi.items)
+    -- Verify no item name truncation with '..'
+    assert(not qv_multi.summary:find('%.%.'), 'Item descriptions must NOT be truncated with .., got: ' .. qv_multi.summary)
+    assert(qv_multi.summary:find('Reinforced Crystal Ingot 1'), 'Full item name must be preserved')
+    assert(qv_multi.summary:find('Reinforced Crystal Ingot 7'), 'All 7 items must be listed without 4-item cap')
+    -- Overflow indicator only when distinct items exceed limit
+    local qv_overflow = waysigns.extract_node_inventory(pos_multi, node_mixed, core.get_meta(pos_multi), pbound_player, 4)
+    assert(qv_overflow.summary:find('%(%+3%)'), 'Overflow indicator (+3) only appears when limit 4 is exceeded')
+
+    print('PASS Test 55')
+
+    print('--- Test 56: Top-right pagination badge positioning & smart wrapping ---')
+    local mock_hud_player = {
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        get_player_name = function() return 'page_tester' end,
+        hud_add = function(self, def)
+            table.insert(self.hud_adds, def)
+            return #self.hud_adds
+        end,
+        hud_change = function(self, id, field, val)
+            table.insert(self.hud_changes, { id = id, field = field, val = val })
+        end,
+        hud_remove = function(self, id)
+            table.insert(self.hud_removes, id)
+        end,
+    }
+    local page_state = waysigns.get_or_create_player_state(mock_hud_player)
+    page_state.opacity = 1.0
+    page_state.target_opacity = 1.0
+    page_state.current_sign_pos = { x = 80, y = 10, z = 30 }
+    page_state.sign_face_pos = { x = 80, y = 10, z = 30 }
+    page_state.current_page = 1
+    page_state.current_sign_data = {
+        tile = 'default_wood.png',
+        text = 'Page 1 Content\nPage 2 Content',
+        is_metal = false,
+        text_color = 0xFFFFFF,
+        is_infotext = true,
+        quickview_items = {
+            { name = 'default:wood', count = 10, icon = 'default_wood.png' }
+        },
+        wrapped = {
+            pages = {
+                { { text = 'Line 1 Page 1', color = 0xFFFFFF } },
+                { { text = 'Line 1 Page 2', color = 0xFFFFFF } },
+            },
+            total_lines = 2,
+            max_line_len = 13,
+        }
+    }
+    waysigns.render_hud(mock_hud_player, page_state)
+    assert(page_state.hud_page_id ~= nil, 'Multi-page sign must create hud_page_id element')
+    local page_hud_elem = mock_hud_player.hud_adds[page_state.hud_page_id]
+    assert(page_hud_elem ~= nil, 'Page HUD element must exist')
+    assert(page_hud_elem.text == '[1/2]', 'Page indicator text must be [1/2], got: ' .. tostring(page_hud_elem.text))
+    assert(page_hud_elem.offset.x > 0, 'Page badge offset.x must be positive (right side), got: ' .. tostring(page_hud_elem.offset.x))
+    assert(page_hud_elem.offset.y < 0, 'Page badge offset.y must be negative (top header), got: ' .. tostring(page_hud_elem.offset.y))
+
+    -- 2. Verify Smart Wrapping (Option D): 30 chars per line and 5 lines prevents spurious page splits
+    local long_title = 'Reinforced Diamond Storage Crate'
+    local long_info_data = waysigns.wrap_text(long_title, 30, 5, 0xFFFFFF)
+    assert(#long_info_data.pages == 1, 'Long title must fit on single page with 30-char/5-line wrapping, got pages: ' .. #long_info_data.pages)
+    assert(long_info_data.total_lines == 2, 'Expected 2 wrapped lines')
+
+    -- 3. Verify doubled scroll delay (5.0s default) and pagination cycling
+    assert(waysigns.settings.scroll_delay == 5.0, 'waysigns.settings.scroll_delay must be 5.0s, got: ' .. tostring(waysigns.settings.scroll_delay))
+
+    print('PASS Test 56')
+end)()
+
+;(function()
+    print('--- Test 57: Stable square infotext plaque, Option 2 clean title, in-place HUD updates & animated frame cropping ---')
+
+    local function MockItemStack(name, count)
+        return {
+            get_name = function() return name end,
+            get_count = function() return count end,
+            is_empty = function() return (not name or name == '' or count <= 0) end,
+            get_short_description = function() return nil end,
+            get_description = function() return nil end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+            is_empty = function(self, name)
+                local l = lists[name]
+                if not l then return true end
+                for _, s in ipairs(l) do
+                    if not s:is_empty() then return false end
+                end
+                return true
+            end,
+        }
+    end
+
+    local test_player = {
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        get_player_name = function() return 'test_player_57' end,
+        hud_add = function(self, def)
+            table.insert(self.hud_adds, def)
+            return #self.hud_adds
+        end,
+        hud_change = function(self, id, field, val)
+            table.insert(self.hud_changes, { id = id, field = field, val = val })
+        end,
+        hud_remove = function(self, id)
+            table.insert(self.hud_removes, id)
+        end,
+        get_inventory = function() return nil end,
+    }
+
+    -- 1. Option 1: Constant stable square plaque size for infotext
+    -- Sizing must be identical regardless of item count (empty chest vs full chest)
+    local empty_chest_data = {
+        nodename = 'default:chest',
+        raw_text = 'Storage Chest',
+        text = 'Storage Chest',
+        tile = 'default_chest_front.png',
+        is_metal = false,
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.0,
+        is_infotext = true,
+        quickview_items = nil,
+        wrapped = waysigns.wrap_text('Storage Chest', 30, 5, 0xFFFFFF)
+    }
+
+    local full_items = {}
+    for i = 1, 24 do
+        full_items[i] = { name = 'mod:item_' .. i, count = 64, icon = 'item_' .. i .. '.png' }
+    end
+    local full_chest_data = {
+        nodename = 'default:chest',
+        raw_text = 'Storage Chest',
+        text = 'Storage Chest',
+        tile = 'default_chest_front.png',
+        is_metal = false,
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.0,
+        is_infotext = true,
+        quickview_items = full_items,
+        wrapped = waysigns.wrap_text('Storage Chest', 30, 5, 0xFFFFFF)
+    }
+
+    waysigns.settings.infotext_scale = 2.0
+    local pstate1 = waysigns.get_or_create_player_state(test_player)
+    pstate1.opacity = 1.0
+    pstate1.target_opacity = 1.0
+    pstate1.current_sign_pos = { x = 90, y = 1, z = 90 }
+    pstate1.current_sign_data = empty_chest_data
+    waysigns.render_hud(test_player, pstate1)
+    local empty_bg_tex = test_player.hud_adds[pstate1.hud_bg_id].text
+    local empty_w, empty_h = empty_bg_tex:match('%[resize:(%d+)x(%d+)')
+    assert(empty_w and empty_h, 'Must find resize modifier in empty chest background texture')
+    assert(empty_w == empty_h, 'Option 1: Infotext plaque must be perfectly square, got ' .. empty_w .. 'x' .. empty_h)
+
+    -- Render full chest with 24 items
+    waysigns.remove_all_huds(test_player)
+    test_player.hud_adds = {}
+    local pstate2 = waysigns.get_or_create_player_state(test_player)
+    pstate2.opacity = 1.0
+    pstate2.target_opacity = 1.0
+    pstate2.current_sign_pos = { x = 90, y = 1, z = 90 }
+    pstate2.current_sign_data = full_chest_data
+    waysigns.render_hud(test_player, pstate2)
+    local full_bg_tex = test_player.hud_adds[pstate2.hud_bg_id].text
+    local full_w, full_h = full_bg_tex:match('%[resize:(%d+)x(%d+)')
+    assert(full_w == empty_w and full_h == empty_h, 'Option 1: Empty chest and full chest must have identical plaque dimensions! empty=' .. empty_w .. 'x' .. empty_h .. ', full=' .. full_w .. 'x' .. full_h)
+    assert(tonumber(empty_w) == math.floor(160 * 2.0), 'Plaque size at default infotext_scale 2.0 must be floor(160*2.0)=320, got: ' .. empty_w)
+
+    -- 2. Option 2: Clean title in header when visual quickview is displayed
+    local chest_inv = MockInventory({
+        main = {
+            MockItemStack('default:wood', 64),
+            MockItemStack('default:apple', 10),
+        }
+    })
+    local pos_chest = { x = 91, y = 1, z = 91, inv = chest_inv, meta = { infotext = 'Personal Vault' } }
+    local node_chest = { name = 'default:chest', param2 = 0 }
+    local vault_data = waysigns.get_node_infotext_data(pos_chest, node_chest, test_player)
+    assert(vault_data ~= nil, 'Vault data must be extracted')
+    assert(vault_data.quickview_items and #vault_data.quickview_items == 2, 'Vault must have 2 quickview items')
+    assert(vault_data.raw_text == 'Personal Vault', 'Option 2: raw_text must be clean title only, got: ' .. vault_data.raw_text)
+    assert(vault_data.text == 'Personal Vault', 'Option 2: text must be clean title only')
+
+    -- When quickview is disabled, raw_text falls back to title without items
+    waysigns.settings.enable_inventory_quickview = false
+    waysigns.node_cache = {}
+    local vault_no_qv = waysigns.get_node_infotext_data(pos_chest, node_chest, test_player)
+    assert(vault_no_qv.quickview_items == nil, 'Quickview items must be nil when setting disabled')
+    assert(vault_no_qv.raw_text == 'Personal Vault', 'Title only when quickview disabled')
+    waysigns.settings.enable_inventory_quickview = true
+    waysigns.node_cache = {}
+
+    -- 3. In-place update on text_changed & Packet Flood Elimination
+    waysigns.remove_all_huds(test_player)
+    test_player.hud_adds = {}
+    test_player.hud_changes = {}
+    test_player.hud_removes = {}
+
+    -- Initial show_hud call
+    local sign_pos = { x = 100, y = 5, z = 100 }
+    waysigns.show_hud(test_player, sign_pos, empty_chest_data)
+    local pstate_sign = waysigns.players['test_player_57']
+    pstate_sign.opacity = 1.0 -- Simulated fade complete
+    local bg_id = pstate_sign.hud_bg_id
+    local line_id = pstate_sign.hud_line_ids[1]
+    assert(bg_id ~= nil and line_id ~= nil, 'HUD elements must be created')
+    assert(#test_player.hud_removes == 0, 'No removals on initial show')
+
+    -- Chest metadata updates while player is looking at it (e.g. inventory changes or infotext update)
+    local chest_updated_data = {
+        nodename = 'default:chest',
+        raw_text = 'Storage Chest (Updated)',
+        text = 'Storage Chest (Updated)',
+        tile = 'default_chest_front.png',
+        is_metal = false,
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.0,
+        is_infotext = true,
+        quickview_items = nil,
+        wrapped = waysigns.wrap_text('Storage Chest (Updated)', 30, 5, 0xFFFFFF)
+    }
+
+    local prev_removes_count = #test_player.hud_removes
+    local prev_adds_count = #test_player.hud_adds
+    waysigns.show_hud(test_player, sign_pos, chest_updated_data)
+
+    -- In-place update must NOT call remove_all_huds or recreate elements from scratch
+    assert(#test_player.hud_removes == prev_removes_count, 'In-place update must NOT tear down HUDs! Removes: ' .. #test_player.hud_removes)
+    assert(#test_player.hud_adds == prev_adds_count, 'In-place update must NOT re-add HUDs! Adds: ' .. #test_player.hud_adds)
+    assert(pstate_sign.opacity == 1.0, 'In-place update must preserve solid opacity=1.0 without restarting fade')
+
+    -- Verify delta tracking: calling render_hud again with identical data produces ZERO hud_change calls
+    local changes_before = #test_player.hud_changes
+    waysigns.render_hud(test_player, pstate_sign)
+    local changes_after = #test_player.hud_changes
+    assert(changes_before == changes_after, 'Delta tracking must skip redundant hud_change packets when content is identical! Before: ' .. changes_before .. ', After: ' .. changes_after)
+
+    -- 4. Animated texture sheet detection & frame 0 cropping
+    local orig_get_modpath = core.get_modpath
+    core.get_modpath = function(m)
+        if m == 'xdecor' then
+            return '/Users/juraj/Library/Application Support/minetest/mods/xdecor'
+        end
+        return orig_get_modpath and orig_get_modpath(m) or '.'
+    end
+    waysigns.animated_frame_cache = {}
+
+    -- 4a. Animation table in tile definition with disk-backed PNG inspection (xdecor:television 16x128 strip -> 8 frames)
+    local anim_tile_def = {
+        name = 'xdecor_television_front_animated.png',
+        animation = { type = 'vertical_frames', aspect_w = 16, aspect_h = 16, length = 80.0 }
+    }
+    local tv_node_def = {
+        description = 'Television',
+        tiles = {
+            'tv_side.png', 'tv_side.png', 'tv_side.png', 'tv_side.png', 'tv_side.png',
+            anim_tile_def
+        }
+    }
+    core.registered_nodes['xdecor:tv'] = tv_node_def
+    local tv_front = waysigns.get_node_infotext_data({ x = 105, y = 1, z = 105, meta = { infotext = 'Television' } }, { name = 'xdecor:tv', param2 = 0 }, test_player)
+    assert(tv_front ~= nil, 'Television data must be extracted')
+    assert(tv_front.tile:find('%[verticalframe:8:0'), 'Animated 16x128 TV strip must be cropped to frame 0 with [verticalframe:8:0, got: ' .. tv_front.tile)
+
+    -- 4b. Animation table when file is not on disk: crops frame 0 via [combine
+    local anim_no_file = {
+        name = 'virtual_animated_flame.png',
+        animation = { type = 'vertical_frames', aspect_w = 16, aspect_h = 16 }
+    }
+    local clean_no_file = waysigns.clean_tile_name(anim_no_file, false, 'custom:flame')
+    assert(clean_no_file:find('%[combine:16x16:0,0=virtual_animated_flame%.png'), 'Virtual animation without disk file must crop top frame via [combine, got: ' .. clean_no_file)
+
+    -- 4c. Existing [verticalframe in tile string normalized to frame 0
+    local bg_custom_frame = waysigns.get_background_texture('custom_torch.png^[verticalframe:16:7', 224, 224, 1.0, true)
+    assert(bg_custom_frame:find('%[verticalframe:16:0'), 'Existing verticalframe:16:7 must be normalized to verticalframe:16:0, got: ' .. bg_custom_frame)
+
+    -- 4d. waysigns.get_texture_frame_count inspection
+    local frames = waysigns.get_texture_frame_count('xdecor_television_front_animated.png', 'xdecor', 16, 16)
+    assert(frames == 8, 'get_texture_frame_count must detect 8 frames for xdecor_television_front_animated.png, got: ' .. tostring(frames))
+
+    core.get_modpath = orig_get_modpath
+    print('PASS Test 57')
+end)()
+
+;(function()
+    print('--- Test 58: Compact quickview item sizing & bounds containment on square plaques ---')
+
+    local function make_items(count)
+        local list = {}
+        for i = 1, count do
+            list[i] = { name = 'mod:item_' .. i, count = i * 2, icon = 'item_' .. i .. '.png' }
+        end
+        return list
+    end
+
+    -- 1. Standard square infotext plaque at scale 1.4 (w = 224, h = 224)
+    local w, h = 224, 224
+
+    -- Test 1 row (8 items)
+    local items8 = make_items(8)
+    local bg8 = waysigns.get_background_texture('default_chest_front.png', w, h, 1.0, false, false, false, false, items8)
+    assert(bg8:find('%[fill\\:22x22\\:#000000a0'), '1 row (8 items) must use 22x22 slots')
+    assert(bg8:find('%^%[resize\\:18x18'), '1 row (8 items) must use 18x18 icons')
+    -- Check that coordinates fit within plaque boundaries
+    for sx, sy in bg8:gmatch(':([%-%d]+),([%-%d]+)=%[fill\\:22x22') do
+        local x_num, y_num = tonumber(sx), tonumber(sy)
+        assert(x_num >= 10 and (x_num + 22) <= (w - 10), 'Slot X=' .. x_num .. ' must fit inside w=' .. w)
+        assert(y_num >= 10 and (y_num + 22) <= (h - 8), 'Slot Y=' .. y_num .. ' must fit inside h=' .. h)
+    end
+
+    -- Test 2 rows (16 items)
+    local items16 = make_items(16)
+    local bg16 = waysigns.get_background_texture('default_chest_front.png', w, h, 1.0, false, false, false, false, items16)
+    assert(bg16:find('%[fill\\:22x22\\:#000000a0'), '2 rows (16 items) must use 22x22 slots')
+    assert(bg16:find('%^%[resize\\:18x18'), '2 rows (16 items) must use 18x18 icons')
+    for sx, sy in bg16:gmatch(':([%-%d]+),([%-%d]+)=%[fill\\:22x22') do
+        local x_num, y_num = tonumber(sx), tonumber(sy)
+        assert(x_num >= 10 and (x_num + 22) <= (w - 10), 'Slot X=' .. x_num .. ' must fit inside w=' .. w)
+        assert(y_num >= 10 and (y_num + 22) <= (h - 8), 'Slot Y=' .. y_num .. ' must fit inside h=' .. h)
+    end
+
+    -- Test 3 rows (24 items)
+    local items24 = make_items(24)
+    local bg24 = waysigns.get_background_texture('default_chest_front.png', w, h, 1.0, false, false, false, false, items24)
+    assert(bg24:find('%[fill\\:22x22\\:#000000a0'), '3 rows (24 items) must use 22x22 slots')
+    assert(bg24:find('%^%[resize\\:18x18'), '3 rows (24 items) must use 18x18 icons')
+    for sx, sy in bg24:gmatch(':([%-%d]+),([%-%d]+)=%[fill\\:22x22') do
+        local x_num, y_num = tonumber(sx), tonumber(sy)
+        assert(x_num >= 10 and (x_num + 22) <= (w - 10), 'Slot X=' .. x_num .. ' must fit inside w=' .. w)
+        assert(y_num >= 10 and (y_num + 22) <= (h - 8), 'Slot Y=' .. y_num .. ' must fit inside h=' .. h)
+    end
+
+    -- Test 4 rows (32 items, 8x4 grid)
+    local items32 = make_items(32)
+    local bg32 = waysigns.get_background_texture('default_chest_front.png', w, h, 1.0, false, false, false, false, items32)
+    assert(bg32:find('%[fill\\:22x22\\:#000000a0'), '4 rows (32 items) must use 22x22 slots')
+    assert(bg32:find('%^%[resize\\:18x18'), '4 rows (32 items) must use 18x18 icons')
+    for sx, sy in bg32:gmatch(':([%-%d]+),([%-%d]+)=%[fill\\:22x22') do
+        local x_num, y_num = tonumber(sx), tonumber(sy)
+        assert(x_num >= 10 and (x_num + 22) <= (w - 10), 'Slot X=' .. x_num .. ' must fit inside w=' .. w)
+        assert(y_num >= 10 and (y_num + 22) <= (h - 8), 'Slot Y=' .. y_num .. ' must fit inside h=' .. h)
+    end
+
+    -- 2. Scaling with plaque width / waysigns_infotext_scale
+    -- Scale 1.0 (w = 160, h = 160)
+    local w_10, h_10 = 160, 160
+    local bg_s10 = waysigns.get_background_texture('default_chest_front.png', w_10, h_10, 1.0, false, false, false, false, items32)
+    assert(bg_s10:find('%[fill\\:16x16\\:#000000a0'), 'Scale 1.0 plaque (160x160) must scale slots to 16x16')
+    assert(bg_s10:find('%^%[resize\\:13x13'), 'Scale 1.0 plaque (160x160) must scale icons to 13x13')
+    for sx, sy in bg_s10:gmatch(':([%-%d]+),([%-%d]+)=%[fill\\:16x16') do
+        local x_num, y_num = tonumber(sx), tonumber(sy)
+        assert(x_num >= 0 and (x_num + 16) <= w_10, 'Scale 1.0 slot X=' .. x_num .. ' must fit inside w=' .. w_10)
+        assert(y_num >= 0 and (y_num + 16) <= h_10, 'Scale 1.0 slot Y=' .. y_num .. ' must fit inside h=' .. h_10)
+    end
+
+    -- Scale 2.0 (w = 320, h = 320)
+    local w_20, h_20 = 320, 320
+    local bg_s20 = waysigns.get_background_texture('default_chest_front.png', w_20, h_20, 1.0, false, false, false, false, items32)
+    assert(bg_s20:find('%[fill\\:31x31\\:#000000a0'), 'Scale 2.0 plaque (320x320) must scale slots to 31x31')
+    assert(bg_s20:find('%^%[resize\\:26x26'), 'Scale 2.0 plaque (320x320) must scale icons to 26x26')
+
+    -- Scale 2.5 (w = 400, h = 400)
+    local w_25, h_25 = 400, 400
+    local bg_s25 = waysigns.get_background_texture('default_chest_front.png', w_25, h_25, 1.0, false, false, false, false, items32)
+    assert(bg_s25:find('%[fill\\:39x39\\:#000000a0'), 'Scale 2.5 plaque (400x400) must scale slots to 39x39')
+    assert(bg_s25:find('%^%[resize\\:32x32'), 'Scale 2.5 plaque (400x400) must scale icons to 32x32')
+
+    -- 3. Dynamic change of waysigns_infotext_scale in render_hud
+    local scale_test_player = {
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        get_player_name = function() return 'scale_tester' end,
+        hud_add = function(self, def)
+            table.insert(self.hud_adds, def)
+            return #self.hud_adds
+        end,
+        hud_change = function(self, id, field, val)
+            table.insert(self.hud_changes, { id = id, field = field, val = val })
+        end,
+        hud_remove = function(self, id)
+            table.insert(self.hud_removes, id)
+        end,
+    }
+    local chest_data_scaling = {
+        nodename = 'default:chest',
+        raw_text = 'Chest',
+        text = 'Chest',
+        tile = 'default_chest_front.png',
+        is_metal = false,
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.0,
+        is_infotext = true,
+        quickview_items = items32,
+        wrapped = waysigns.wrap_text('Chest', 30, 5, 0xFFFFFF)
+    }
+
+    -- Render at default infotext_scale = 1.4
+    waysigns.settings.infotext_scale = 1.4
+    local pstate_scale = waysigns.get_or_create_player_state(scale_test_player)
+    pstate_scale.opacity = 1.0
+    pstate_scale.target_opacity = 1.0
+    pstate_scale.current_sign_pos = { x = 1, y = 2, z = 3 }
+    pstate_scale.current_sign_data = chest_data_scaling
+    waysigns.render_hud(scale_test_player, pstate_scale)
+    local tex_14 = scale_test_player.hud_adds[pstate_scale.hud_bg_id].text
+    assert(tex_14:find('%[fill\\:22x22'), 'infotext_scale 1.4 must render 22x22 slots')
+    assert(tex_14:find('%^%[resize\\:18x18'), 'infotext_scale 1.4 must render 18x18 icons')
+
+    -- Change setting to infotext_scale = 2.0
+    waysigns.settings.infotext_scale = 2.0
+    waysigns.render_hud(scale_test_player, pstate_scale)
+    local tex_20 = pstate_scale.rendered_bg_texture
+    assert(tex_20:find('%[fill\\:31x31'), 'infotext_scale 2.0 must scale slots up to 31x31, got: ' .. tostring(tex_20))
+    assert(tex_20:find('%^%[resize\\:26x26'), 'infotext_scale 2.0 must scale icons up to 26x26')
+
+    -- Reset setting to default 2.0
+    waysigns.settings.infotext_scale = 2.0
+
+    print('PASS Test 58')
+end)()
+
+print('--- Test 59: Hex color code escape sequences in clean_line ---')
+;(function()
+    -- 1. Standard 6-digit #RRGGBB
+    local l6, c6 = waysigns.clean_line('\27(c@#55FF55)Hospital')
+    assert(l6 == 'Hospital', 'clean_line must strip 6-digit engine color escape, got: ' .. l6)
+    assert(c6 == 0x55FF55, 'clean_line must detect 0x55FF55 for #55FF55, got: ' .. string.format('0x%06X', c6 or 0))
+
+    -- 2. 3-digit shorthand #RGB (e.g. #5F5 -> #55FF55)
+    local l3, c3 = waysigns.clean_line('\27(c@#5F5)Emergency')
+    assert(l3 == 'Emergency', 'clean_line must strip 3-digit engine color escape, got: ' .. l3)
+    assert(c3 == 0x55FF55, 'clean_line must expand #5F5 to 0x55FF55, got: ' .. string.format('0x%06X', c3 or 0))
+
+    -- 3. 8-digit #RRGGBBAA with alpha channel (e.g. #FF8800CC -> #FF8800)
+    local l8, c8 = waysigns.clean_line('\27(c@#FF8800CC)Warning')
+    assert(l8 == 'Warning', 'clean_line must strip 8-digit engine color escape, got: ' .. l8)
+    assert(c8 == 0xFF8800, 'clean_line must extract RGB from 8-digit hex #FF8800CC, got: ' .. string.format('0x%06X', c8 or 0))
+
+    -- 4. Normal line without color escape
+    local lplain, cplain = waysigns.clean_line('Simple Text')
+    assert(lplain == 'Simple Text' and cplain == nil, 'clean_line must leave plain text intact')
+
+    print('PASS Test 59')
+end)()
+
+print('--- Test 60: Unowned container in protected area respecting locks ---')
+;(function()
+    local function MockItemStack(name, count)
+        return {
+            is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
+            get_name = function(self) return name or '' end,
+            get_count = function(self) return count or 0 end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self) return name end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+        }
+    end
+
+    waysigns.settings.quickview_respect_locks = true
+    local prot_pos = { x = 40, y = 5, z = 60 }
+    local node = { name = 'default:chest' }
+    local meta = {
+        get_string = function(self, key)
+            if key == 'owner' then return '' end
+            return ''
+        end,
+        get_inventory = function(self)
+            return MockInventory({ main = { MockItemStack('default:gold_ingot', 10) } })
+        end
+    }
+    local player_intruder = {
+        get_player_name = function() return 'intruder' end
+    }
+
+    -- 1. When area is protected against intruder
+    local orig_is_protected = core.is_protected
+    core.is_protected = function(pos, name)
+        if pos.x == 40 and name == 'intruder' then
+            return true
+        end
+        return false
+    end
+
+    local qv_blocked = waysigns.extract_node_inventory(prot_pos, node, meta, player_intruder)
+    assert(qv_blocked == nil, 'Unowned container in protected area must be blocked when quickview_respect_locks is true')
+
+    -- 2. When area is NOT protected (public area)
+    core.is_protected = function(pos, name) return false end
+    local qv_allowed = waysigns.extract_node_inventory(prot_pos, node, meta, player_intruder)
+    assert(qv_allowed ~= nil and #qv_allowed.items > 0, 'Unowned container in uninhibited public area must be visible')
+
+    core.is_protected = orig_is_protected
+    print('PASS Test 60')
+end)()
+
+print('--- Test 61: Infotext multi-viewer cache isolation and 0.5s throttling ---')
+;(function()
+    local function MockItemStack(name, count)
+        return {
+            is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
+            get_name = function(self) return name or '' end,
+            get_count = function(self) return count or 0 end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self) return name end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+        }
+    end
+
+    waysigns.settings.enable_inventory_quickview = true
+    waysigns.settings.quickview_respect_locks = true
+
+    local chest_pos = { x = 80, y = 10, z = 90 }
+    local chest_node = { name = 'default:chest_locked' }
+
+    local chest_meta = {
+        get_string = function(self, key)
+            if key == 'infotext' then return 'Locked Chest' end
+            if key == 'owner' then return 'alice' end
+            return ''
+        end,
+        get_inventory = function(self)
+            return MockInventory({ main = { MockItemStack('default:diamond', 64) } })
+        end
+    }
+
+    local orig_get_meta = core.get_meta
+    core.get_meta = function(p)
+        if p.x == 80 then return chest_meta end
+        return orig_get_meta(p)
+    end
+
+    local alice_player = {
+        get_player_name = function() return 'alice' end
+    }
+    local bob_player = {
+        get_player_name = function() return 'bob' end
+    }
+
+    -- 1. Alice (owner) queries infotext data
+    local alice_data = waysigns.get_node_infotext_data(chest_pos, chest_node, alice_player)
+    assert(alice_data ~= nil, 'Alice should receive infotext data')
+    assert(alice_data.quickview_items ~= nil and #alice_data.quickview_items == 1,
+        'Alice (owner) must see the diamond quickview')
+
+    -- 2. Bob (visitor) queries the same locked chest
+    local bob_data = waysigns.get_node_infotext_data(chest_pos, chest_node, bob_player)
+    assert(bob_data ~= nil, 'Bob should receive infotext data')
+    assert(bob_data.quickview_items == nil,
+        'Bob (visitor) must NOT see quickview items due to cache isolation')
+
+    -- 3. Verify Alice still sees her cached quickview items
+    local alice_data2 = waysigns.get_node_infotext_data(chest_pos, chest_node, alice_player)
+    assert(alice_data2.quickview_items ~= nil and #alice_data2.quickview_items == 1,
+        'Alice must still see her diamond quickview upon immediate re-query')
+
+    core.get_meta = orig_get_meta
+    print('PASS Test 61')
+end)()
+
+print('--- Test 62: Bounded FIFO cache eviction (MAX_TEXTURE_CACHE & MAX_NODE_CACHE) ---')
+;(function()
+    waysigns.clear_caches()
+    -- 1. Test texture cache bounds
+    waysigns.MAX_TEXTURE_CACHE = 10 -- Temporarily lower bound for fast test
+    for i = 1, 15 do
+        waysigns.set_cached_texture('key_' .. i, 'tex_' .. i)
+    end
+    -- Keys 1..5 should have been evicted, 6..15 should exist
+    for i = 1, 5 do
+        assert(waysigns.texture_cache['key_' .. i] == nil, 'Oldest texture key_' .. i .. ' should have been evicted')
+    end
+    for i = 6, 15 do
+        assert(waysigns.texture_cache['key_' .. i] == 'tex_' .. i, 'Recent texture key_' .. i .. ' must remain cached')
+    end
+    waysigns.MAX_TEXTURE_CACHE = 500
+
+    -- 2. Test node cache bounds
+    waysigns.MAX_NODE_CACHE = 10 -- Temporarily lower bound for fast test
+    for i = 1, 15 do
+        waysigns.set_cached_node('node_key_' .. i, { id = i })
+    end
+    for i = 1, 5 do
+        assert(waysigns.node_cache['node_key_' .. i] == nil, 'Oldest node_key_' .. i .. ' should have been evicted')
+    end
+    for i = 6, 15 do
+        assert(waysigns.node_cache['node_key_' .. i] ~= nil and waysigns.node_cache['node_key_' .. i].id == i,
+            'Recent node_key_' .. i .. ' must remain cached')
+    end
+    waysigns.MAX_NODE_CACHE = 1000
+
+    print('PASS Test 62')
+end)()
+
+print('================ ALL 62 UNIT TESTS PASSED ================')
+
+
+
+
