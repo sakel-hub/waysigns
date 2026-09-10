@@ -4083,6 +4083,24 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(updated_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_steel.png%]'), 'Live preview must display steel plaque texture')
     assert(updated_fs:find('Fortress Guard'), 'Live preview must display updated inscription text')
 
+    -- 4b. Test color dropdown change updates preview color immediately
+    receive_cb(owner_player, 'waysigns:inscribe', { color = 'Lime Green' })
+    local color_fs = _G.last_shown_formspec.formspec
+    assert(color_fs:find('c@#76FF03%)Fortress Guard'), 'Live preview text must update to Lime Green (#76FF03)')
+    assert(color_fs:find('box%[2.08,7.11;0.52,0.52;#ffd700%]'), 'Lime green color swatch must have golden halo')
+
+    -- 4c. Test color palette swatch click updates preview color immediately
+    receive_cb(owner_player, 'waysigns:inscribe', { color_sel_cyan = '' })
+    local cyan_fs = _G.last_shown_formspec.formspec
+    assert(cyan_fs:find('c@#00E5FF%)Fortress Guard'), 'Live preview text must update to Cyan (#00E5FF)')
+    assert(cyan_fs:find('box%[1.54,7.11;0.52,0.52;#ffd700%]'), 'Cyan color swatch must have golden halo')
+
+    -- 4d. Test plaque dropdown change updates preview plaque texture immediately
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque = 'Gold / Brass' })
+    local gold_plaque_fs = _G.last_shown_formspec.formspec
+    assert(gold_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_gold.png%]'), 'Live preview must update to Gold plaque texture')
+    assert(gold_plaque_fs:find('box%[5.17,4.25;1.10,1.10;#ffd700%]'), 'Gold swatch must have golden halo')
+
     -- 5. Test Cancel button closes formspec
     _G.last_closed_formspec = nil
     receive_cb(owner_player, 'waysigns:inscribe', { cancel = 'Cancel' })

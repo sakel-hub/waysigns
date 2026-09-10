@@ -111,6 +111,40 @@ local function get_color_index(key)
     return 1
 end
 
+---Resolve plaque key from field value (string label, key, or index)
+---@param field_value string|number|nil
+---@return string|nil key
+local function resolve_plaque_key(field_value)
+    if not field_value then return nil end
+    for _, opt in ipairs(PLAQUE_OPTIONS) do
+        if opt.label == field_value or opt.key == field_value then
+            return opt.key
+        end
+    end
+    local num = tonumber(field_value) or tonumber(tostring(field_value):match('^CHG:(%d+)'))
+    if num and PLAQUE_OPTIONS[num] then
+        return PLAQUE_OPTIONS[num].key
+    end
+    return nil
+end
+
+---Resolve color key from field value (string label, key, or index)
+---@param field_value string|number|nil
+---@return string|nil key
+local function resolve_color_key(field_value)
+    if not field_value then return nil end
+    for _, opt in ipairs(COLOR_OPTIONS) do
+        if opt.label == field_value or opt.key == field_value then
+            return opt.key
+        end
+    end
+    local num = tonumber(field_value) or tonumber(tostring(field_value):match('^CHG:(%d+)'))
+    if num and COLOR_OPTIONS[num] then
+        return COLOR_OPTIONS[num].key
+    end
+    return nil
+end
+
 ---Build dropdown item string from option tables
 ---@param options table[] Array of option tables with label field
 ---@return string dropdown_str Comma-separated labels
@@ -191,11 +225,29 @@ local function build_inscription_formspec(target)
         plaque_dropdown_items, plaque_idx))
     table.insert(parts, string.format('tooltip[plaque;%s]', core.formspec_escape(S('Select Plaque Material'))))
 
-    -- Left: Text Color
+    -- Left: Text Color Dropdown & Quick Palette
     table.insert(parts, 'label[0.50,5.65;' .. core.formspec_escape(S('Text Color:')) .. ']')
     table.insert(parts, string.format('dropdown[0.50,6.05;3.20,0.80;color;%s;%d]',
         color_dropdown_items, color_idx))
     table.insert(parts, string.format('tooltip[color;%s]', core.formspec_escape(S('Select Text Color'))))
+
+    -- Quick Color Palette Swatches
+    local current_color = target.color or 'white'
+    for c_idx, c_opt in ipairs(COLOR_OPTIONS) do
+        local c_x = 0.50 + (c_idx - 1) * 0.54
+        local c_y = 7.15
+        local hex = get_color_hex(c_opt.key)
+
+        if c_opt.key == current_color then
+            table.insert(parts, string.format('box[%.2f,%.2f;0.52,0.52;#ffd700]', c_x - 0.04, c_y - 0.04))
+        else
+            table.insert(parts, string.format('box[%.2f,%.2f;0.48,0.48;#2a2e39]', c_x - 0.02, c_y - 0.02))
+        end
+
+        table.insert(parts, string.format('style[color_sel_%s;bgcolor=%s;border=false]', c_opt.key, hex))
+        table.insert(parts, string.format('button[%.2f,%.2f;0.44,0.44;color_sel_%s;]', c_x, c_y, c_opt.key))
+        table.insert(parts, string.format('tooltip[color_sel_%s;%s]', c_opt.key, core.formspec_escape(c_opt.label)))
+    end
 
     -- Right: Live Waypoint Plaque Preview Card
     table.insert(parts, 'label[4.10,5.65;' .. core.formspec_escape(S('Live Plaque Preview:')) .. ']')
@@ -394,21 +446,58 @@ core.register_on_player_receive_fields(function(player, formname, fields)
         return
     end
 
-    -- Handle plaque swatch thumbnail click
+    -- Keep target.text updated whenever formspec fields are received
+    if fields.inscription then
+        target.text = fields.inscription
+    end
+
+    -- Handle plaque swatch thumbnail click or dropdown change
+    local new_plaque = nil
     for _, opt in ipairs(PLAQUE_OPTIONS) do
         if fields['plaque_sel_' .. opt.key] then
-            target.plaque = opt.key
-            if fields.inscription then
-                target.text = fields.inscription
+            new_plaque = opt.key
+            break
+        end
+    end
+    if not new_plaque and fields.plaque and not fields.save and not fields.erase then
+        new_plaque = resolve_plaque_key(fields.plaque)
+    end
+
+    -- Handle color swatch click or dropdown change
+    local new_color = nil
+    for _, opt in ipairs(COLOR_OPTIONS) do
+        if fields['color_sel_' .. opt.key] then
+            new_color = opt.key
+            break
+        end
+    end
+    if not new_color and fields.color and not fields.save and not fields.erase then
+        new_color = resolve_color_key(fields.color)
+    end
+
+    local changed = false
+    if new_plaque and new_plaque ~= target.plaque then
+        target.plaque = new_plaque
+        changed = true
+    end
+    if new_color and new_color ~= target.color then
+        target.color = new_color
+        changed = true
+    end
+
+    -- If player changed color, plaque, or clicked a swatch without saving/erasing, refresh preview
+    if not fields.save and not fields.erase then
+        local swatch_clicked = false
+        for _, opt in ipairs(PLAQUE_OPTIONS) do
+            if fields['plaque_sel_' .. opt.key] then swatch_clicked = true break end
+        end
+        if not swatch_clicked then
+            for _, opt in ipairs(COLOR_OPTIONS) do
+                if fields['color_sel_' .. opt.key] then swatch_clicked = true break end
             end
-            if fields.color then
-                for _, c_opt in ipairs(COLOR_OPTIONS) do
-                    if c_opt.label == fields.color or c_opt.key == fields.color then
-                        target.color = c_opt.key
-                        break
-                    end
-                end
-            end
+        end
+
+        if changed or swatch_clicked then
             waysigns.show_inscription_formspec(player, target)
             return
         end
@@ -449,23 +538,15 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             -- Match plaque option: prefer selected swatch in target.plaque, or check dropdown
             local plaque_key = target.plaque or 'default'
             if fields.plaque then
-                for _, opt in ipairs(PLAQUE_OPTIONS) do
-                    if opt.label == fields.plaque or opt.key == fields.plaque then
-                        plaque_key = opt.key
-                        break
-                    end
-                end
+                local p = resolve_plaque_key(fields.plaque)
+                if p then plaque_key = p end
             end
 
             -- Match color option
             local color_key = target.color or 'white'
             if fields.color then
-                for _, opt in ipairs(COLOR_OPTIONS) do
-                    if opt.label == fields.color or opt.key == fields.color then
-                        color_key = opt.key
-                        break
-                    end
-                end
+                local c = resolve_color_key(fields.color)
+                if c then color_key = c end
             end
 
             waysigns.set_node_inscription(pos, clean_text, plaque_key, color_key, player_name)
@@ -535,22 +616,14 @@ core.register_on_player_receive_fields(function(player, formname, fields)
 
             local plaque_key = target.plaque or 'default'
             if fields.plaque then
-                for _, opt in ipairs(PLAQUE_OPTIONS) do
-                    if opt.label == fields.plaque or opt.key == fields.plaque then
-                        plaque_key = opt.key
-                        break
-                    end
-                end
+                local p = resolve_plaque_key(fields.plaque)
+                if p then plaque_key = p end
             end
 
             local color_key = target.color or 'white'
             if fields.color then
-                for _, opt in ipairs(COLOR_OPTIONS) do
-                    if opt.label == fields.color or opt.key == fields.color then
-                        color_key = opt.key
-                        break
-                    end
-                end
+                local c = resolve_color_key(fields.color)
+                if c then color_key = c end
             end
 
             waysigns.set_entity_inscription(obj, clean_text, plaque_key, color_key, player_name)
