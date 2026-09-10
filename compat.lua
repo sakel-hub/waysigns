@@ -766,11 +766,15 @@ function waysigns.get_sign_data(pos, node)
         return nil
     end
 
-    -- Check dynamic metadata from signs_rx or other custom systems
+    -- Check dynamic metadata from signs_rx, waysigns marker, or other custom systems
     local rx_scale = meta:get_string('scale')
     local rx_color = meta:get_string('color')
+    local waysigns_plaque = meta:get_string('waysigns_plaque')
+    local waysigns_color = meta:get_string('waysigns_color')
 
-    if cached and cached.nodename == node.name and cached.raw_text == text and cached.rx_scale == rx_scale and cached.rx_color == rx_color then
+    if cached and cached.nodename == node.name and cached.raw_text == text
+        and cached.rx_scale == rx_scale and cached.rx_color == rx_color
+        and cached.waysigns_plaque == waysigns_plaque and cached.waysigns_color == waysigns_color then
         return cached
     end
 
@@ -799,6 +803,7 @@ function waysigns.get_sign_data(pos, node)
             or node.name:find('iron')
             or node.name:find('metal')
             or node.name:find('stone'))
+    local is_glass = (reg_def and reg_def.is_glass) or false
 
     -- Determine base tile from node definition or registration
     local is_mesh_sign = (node_def.drawtype == 'mesh')
@@ -881,8 +886,11 @@ function waysigns.get_sign_data(pos, node)
         tile = clean_tile_name(raw_tile, is_metal, node.name)
         aspect_ratio = reg_def.aspect_ratio or waysigns.get_aspect_ratio(node.name, node_def, reg_def)
     else
-        -- 3. Generic sign detection
-        local is_sign = (core.get_item_group(node.name, 'sign') > 0)
+        -- 3. Generic sign detection or WaySigns marker inscription
+        local has_inscription = (meta:get_string('waysigns_text') ~= '')
+
+        local is_sign = has_inscription
+            or (core.get_item_group(node.name, 'sign') > 0)
             or (core.get_item_group(node.name, 'board') > 0)
             or (node_def.drawtype == 'signlike')
             or not not (node.name:find('sign')
@@ -895,10 +903,22 @@ function waysigns.get_sign_data(pos, node)
             return nil
         end
 
-        text_color = is_metal and 0xEEEEEE or 0xFFFFFF
-        local raw_tile = base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
+        local chosen_tile = nil
+        if has_inscription and waysigns_plaque ~= '' and waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[waysigns_plaque] then
+            chosen_tile = waysigns.PLAQUE_STYLES[waysigns_plaque]
+            is_metal = (waysigns_plaque == 'steel' or waysigns_plaque == 'slate' or waysigns_plaque == 'gold')
+            is_glass = (waysigns_plaque == 'glass')
+        end
+
+        if has_inscription and waysigns_color ~= '' and waysigns.INSCRIPTION_COLORS and waysigns.INSCRIPTION_COLORS[waysigns_color] then
+            text_color = waysigns.INSCRIPTION_COLORS[waysigns_color]
+        else
+            text_color = is_metal and 0xEEEEEE or 0xFFFFFF
+        end
+
+        local raw_tile = chosen_tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
         tile = clean_tile_name(raw_tile, is_metal, node.name)
-        aspect_ratio = waysigns.get_aspect_ratio(node.name, node_def, nil)
+        aspect_ratio = (has_inscription and 1.40) or waysigns.get_aspect_ratio(node.name, node_def, nil)
     end
 
     -- Hiking directional arrow detection
@@ -952,11 +972,14 @@ function waysigns.get_sign_data(pos, node)
         text = text,
         tile = tile,
         is_metal = is_metal,
+        is_glass = is_glass,
         is_light_bg = is_light_bg,
         text_color = text_color,
         aspect_ratio = aspect_ratio,
         rx_scale = rx_scale,
         rx_color = rx_color,
+        waysigns_plaque = waysigns_plaque,
+        waysigns_color = waysigns_color,
         wrapped = waysigns.wrap_text(text, nil, nil, text_color)
     }
 
@@ -1443,6 +1466,75 @@ function waysigns.get_node_infotext_data(pos, node, player)
     end
     entry.by_player[player_name] = data
     return data
+end
+
+---Retrieve extracted inscription sign data for an active entity
+---@param object ObjectRef Entity reference
+---@return table|nil sign_data Extracted sign data or nil if not inscribed
+function waysigns.get_entity_inscription_data(object)
+    if not object or not object.get_pos then
+        return nil
+    end
+
+    local pos = object:get_pos()
+    if not pos then
+        return nil
+    end
+
+    local lua_ent = object.get_luaentity and object:get_luaentity()
+    local text = (lua_ent and lua_ent._waysigns_text) or object._waysigns_text
+    if not text or text == '' then
+        local props = object.get_properties and object:get_properties()
+        if props and props.infotext and props.infotext ~= '' then
+            text = props.infotext
+        end
+    end
+
+    if not waysigns.is_valid_sign_text(text) then
+        return nil
+    end
+
+    local plaque = (lua_ent and lua_ent._waysigns_plaque) or object._waysigns_plaque or 'default'
+    local color_name = (lua_ent and lua_ent._waysigns_color) or object._waysigns_color or 'white'
+
+    local tile = waysigns.PLAQUE_STYLES[plaque] or waysigns.FALLBACK_WOOD
+    local is_metal = (plaque == 'steel' or plaque == 'slate' or plaque == 'gold')
+    local is_glass = (plaque == 'glass')
+    local is_light_bg = waysigns.is_light_background(tile)
+    local text_color = waysigns.INSCRIPTION_COLORS[color_name] or (is_light_bg and 0x222222 or 0xFFFFFF)
+
+    local props = object.get_properties and object:get_properties() or {}
+    local height = 1.0
+    if props.collisionbox and type(props.collisionbox) == 'table' and props.collisionbox[5] then
+        height = math.max(0.3, props.collisionbox[5])
+    elseif props.visual_size and type(props.visual_size) == 'table' and props.visual_size.y then
+        height = math.max(0.3, props.visual_size.y)
+    end
+
+    local waypoint_pos = {
+        x = pos.x,
+        y = pos.y + height + 0.35,
+        z = pos.z,
+    }
+
+    local wrapped = waysigns.wrap_text(text, 26, 4, text_color)
+
+    return {
+        nodename = (lua_ent and lua_ent.name) or 'entity',
+        raw_text = text,
+        text = text,
+        tile = tile,
+        is_metal = is_metal,
+        is_glass = is_glass,
+        is_light_bg = is_light_bg,
+        text_color = text_color,
+        aspect_ratio = 1.4,
+        wrapped = wrapped,
+        pages = wrapped.pages,
+        is_entity = true,
+        pos = waypoint_pos,
+        face_pos = waypoint_pos,
+    }
 end
 
 --------------------------------------------------------------------------------

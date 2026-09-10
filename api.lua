@@ -74,6 +74,10 @@ waysigns = {
         quickview_max_slots = math.max(1, math.min(32, tonumber(core.settings:get('waysigns_quickview_max_slots')) or 32)),
         quickview_show_all = core.settings:get_bool('waysigns_quickview_show_all', true),
         quickview_respect_locks = core.settings:get_bool('waysigns_quickview_respect_locks', true),
+        enable_marker = core.settings:get_bool('waysigns_enable_marker', true),
+        marker_uses = math.max(0, tonumber(core.settings:get('waysigns_marker_uses')) or 100),
+        enable_entity_inspection = core.settings:get_bool('waysigns_enable_entity_inspection', true),
+        marker_max_chars = math.max(10, math.min(1000, tonumber(core.settings:get('waysigns_marker_max_chars')) or 250)),
     },
     registered_signs = {},
     custom_resolvers = {},
@@ -88,6 +92,24 @@ waysigns = {
     MAX_NODE_CACHE = 1000,
     FALLBACK_WOOD = 'waysigns_sign_wood.png',
     FALLBACK_STEEL = 'waysigns_sign_steel.png',
+    FALLBACK_SLATE = 'waysigns_sign_slate.png',
+    FALLBACK_GOLD = 'waysigns_sign_gold.png',
+    FALLBACK_GLASS = 'waysigns_sign_glass.png',
+    PLAQUE_STYLES = {
+        wood = 'waysigns_sign_wood.png',
+        steel = 'waysigns_sign_steel.png',
+        slate = 'waysigns_sign_slate.png',
+        gold = 'waysigns_sign_gold.png',
+        glass = 'waysigns_sign_glass.png',
+    },
+    INSCRIPTION_COLORS = {
+        white = 0xFFFFFF,
+        gold = 0xFFD700,
+        cyan = 0x00E5FF,
+        green = 0x76FF03,
+        red = 0xFF5252,
+        dark = 0x222222,
+    },
     DEFAULT_NORMAL = { x = 0, y = 0, z = 1 },
 }
 
@@ -287,6 +309,12 @@ local is_valid_sign_text = waysigns.is_valid_sign_text
 ---@param meta NodeMetaRef Node metadata reference from core.get_meta(pos)
 ---@return string|nil text Clean sign text string, or nil if empty or placeholder
 function waysigns.extract_text(meta)
+    -- 0. Dedicated WaySigns inscription marker text (takes top priority)
+    local waysigns_text = meta:get_string('waysigns_text')
+    if is_valid_sign_text(waysigns_text) then
+        return waysigns_text
+    end
+
     -- 1. Standard text field (Luanti Game / default, signs_lib, basic_signs, signs_rx, hiking, locks, jp_signs)
     local text = meta:get_string('text')
     if is_valid_sign_text(text) then
@@ -1477,7 +1505,8 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
         state.current_sign_pos = sign_pos
         state.current_sign_data = sign_data
         state.current_sign_normal = normal or waysigns.DEFAULT_NORMAL
-        state.sign_face_pos = waysigns.get_sign_face_pos(sign_pos, state.current_sign_normal, intersection_point, is_attached_above, sign_data.is_infotext)
+        state.sign_face_pos = (sign_data.is_entity and (sign_data.pos or sign_pos))
+            or waysigns.get_sign_face_pos(sign_pos, state.current_sign_normal, intersection_point, is_attached_above, sign_data.is_infotext)
         state.current_page = 1
         state.page_timer = 0
         state.opacity = (waysigns.settings.fade_time <= 0) and 1.0 or 0.0
@@ -1516,9 +1545,9 @@ function waysigns.hide_hud(player)
     state.target_opacity = 0.0
 end
 
----Per-player step update handling throttled raycast detection and smooth opacity fade transitions
----@param player ObjectRef Player being updated
----@param dtime number Delta time in seconds since last server step
+---Main player update tick: raycasts signs, checks distances, and drives smooth animations
+---@param player ObjectRef Connected player to update
+---@param dtime number Delta time in seconds since last tick
 function waysigns.update_player(player, dtime)
     -- Short-circuit update loop when player is dead: eliminate raycasting, node lookups, and HUD rendering
     if waysigns.is_player_dead(player) then
@@ -1568,9 +1597,23 @@ function waysigns.update_player(player, dtime)
         local pointed_intersection = nil
         local pointed_is_attached = false
 
-        local ray = core.raycast(eye_pos, ray_end, false, false)
+        local enable_objects = waysigns.settings.enable_entity_inspection
+        local ray = core.raycast(eye_pos, ray_end, enable_objects, false)
         for pt in ray do
-            if pt.type == 'node' then
+            if pt.type == 'object' then
+                local obj = pt.ref
+                if obj and (not obj.is_player or not obj:is_player()) then
+                    local ent_data = waysigns.get_entity_inscription_data and waysigns.get_entity_inscription_data(obj)
+                    if ent_data then
+                        pointed_sign_pos = ent_data.pos
+                        pointed_sign_normal = pt.intersection_normal or vector.direction(eye_pos, ent_data.pos)
+                        pointed_sign_data = ent_data
+                        pointed_intersection = pt.intersection_point or ent_data.pos
+                        pointed_is_attached = false
+                        break
+                    end
+                end
+            elseif pt.type == 'node' then
                 local node = core.get_node_or_nil(pt.under)
                 if node and node.name ~= 'air' and node.name ~= 'ignore' then
                     local data = waysigns.get_sign_data(pt.under, node)
@@ -1719,5 +1762,100 @@ function waysigns.on_dieplayer(player)
         state.check_timer = 0
         state.page_timer = 0
     end
+end
+
+---Write or update an inscription on a node's metadata
+---@param pos Vector Node position
+---@param text string Inscription text (empty string to clear)
+---@param plaque string|nil Plaque style ('wood', 'steel', 'slate', 'gold', 'glass', 'default')
+---@param color string|nil Inscription text color name ('white', 'gold', 'cyan', 'green', 'red', 'dark')
+---@param player_name string|nil Name of modifying player for attribution
+---@return boolean success True if inscription was written
+function waysigns.set_node_inscription(pos, text, plaque, color, player_name)
+    if not pos then return false end
+    local meta = core.get_meta(pos)
+    if not meta then return false end
+    if not text or text == '' then
+        meta:set_string('waysigns_text', '')
+        meta:set_string('waysigns_plaque', '')
+        meta:set_string('waysigns_color', '')
+        meta:set_string('waysigns_author', '')
+    else
+        meta:set_string('waysigns_text', text)
+        meta:set_string('waysigns_plaque', plaque or 'default')
+        meta:set_string('waysigns_color', color or 'white')
+        if player_name and player_name ~= '' then
+            meta:set_string('waysigns_author', player_name)
+        end
+    end
+    waysigns.invalidate_cache(pos)
+    return true
+end
+
+---Read active inscription from a node's metadata
+---@param pos Vector Node position
+---@return table|nil inscription Table with text, plaque, color, author, or nil if unassigned
+function waysigns.get_node_inscription(pos)
+    if not pos then return nil end
+    local meta = core.get_meta(pos)
+    if not meta then return nil end
+    local text = meta:get_string('waysigns_text')
+    if not text or text == '' then return nil end
+    return {
+        text = text,
+        plaque = meta:get_string('waysigns_plaque') or 'default',
+        color = meta:get_string('waysigns_color') or 'white',
+        author = meta:get_string('waysigns_author'),
+    }
+end
+
+---Write or update an inscription on an entity
+---@param object ObjectRef Entity object reference
+---@param text string Inscription text (empty string to clear)
+---@param plaque string|nil Plaque style ('wood', 'steel', 'slate', 'gold', 'glass', 'default')
+---@param color string|nil Inscription text color name
+---@param player_name string|nil Name of modifying player
+---@return boolean success True if inscription was updated
+function waysigns.set_entity_inscription(object, text, plaque, color, player_name)
+    if not object or not object.get_pos then return false end
+    local lua_ent = object.get_luaentity and object:get_luaentity()
+    local has_text = (text and text ~= '')
+    if lua_ent then
+        lua_ent._waysigns_text = has_text and text or nil
+        lua_ent._waysigns_plaque = has_text and (plaque or 'default') or nil
+        lua_ent._waysigns_color = has_text and (color or 'white') or nil
+        lua_ent._waysigns_author = (has_text and player_name and player_name ~= '') and player_name or nil
+    end
+    rawset(object, '_waysigns_text', has_text and text or nil)
+    rawset(object, '_waysigns_plaque', has_text and (plaque or 'default') or nil)
+    rawset(object, '_waysigns_color', has_text and (color or 'white') or nil)
+    rawset(object, '_waysigns_author', (has_text and player_name and player_name ~= '') and player_name or nil)
+
+    if object.set_properties then
+        object:set_properties({
+            infotext = text or '',
+        })
+    end
+    return true
+end
+
+---Read active inscription from an entity
+---@param object ObjectRef Entity object reference
+---@return table|nil inscription Table with text, plaque, color, author, or nil if unassigned
+function waysigns.get_entity_inscription(object)
+    if not object or not object.get_pos then return nil end
+    local lua_ent = object.get_luaentity and object:get_luaentity()
+    local text = (lua_ent and lua_ent._waysigns_text) or object._waysigns_text
+    if not text or text == '' then
+        local props = object.get_properties and object:get_properties()
+        text = props and props.infotext
+    end
+    if not text or text == '' then return nil end
+    return {
+        text = text,
+        plaque = (lua_ent and lua_ent._waysigns_plaque) or object._waysigns_plaque or 'default',
+        color = (lua_ent and lua_ent._waysigns_color) or object._waysigns_color or 'white',
+        author = (lua_ent and lua_ent._waysigns_author) or object._waysigns_author,
+    }
 end
 

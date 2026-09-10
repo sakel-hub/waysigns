@@ -83,3 +83,15 @@ waysigns_quickview_show_all (Quickview Show All Occupied Items) bool true
 
 # Respect container locks and protection (suppress private inventory contents for non-owners).
 waysigns_quickview_respect_locks (Quickview Respect Container Locks) bool true
+
+# Enable the WaySigns Inscription Marker tool (waysigns:marker) for writing on nodes and entities.
+waysigns_enable_marker (Enable Inscription Marker Tool) bool true
+
+# Number of inscription uses before the marker tool wears out (0 = infinite durability).
+waysigns_marker_uses (Marker Uses Before Depletion) int 100 0 1000
+
+# Enable WaySigns HUD inspection and floating waypoints for inscribed entities.
+waysigns_enable_entity_inspection (Enable Entity Inscription Inspection) bool true
+
+# Maximum characters allowed per inscription when writing with the marker tool.
+waysigns_marker_max_chars (Marker Inscription Max Characters) int 250 10 1000

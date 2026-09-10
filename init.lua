@@ -20,6 +20,7 @@ local modpath = core.get_modpath(core.get_current_modname())
 
 dofile(modpath .. '/api.lua')
 dofile(modpath .. '/compat.lua')
+dofile(modpath .. '/marker.lua')
 
 -- Main globalstep loop for player updates
 core.register_globalstep(waysigns.globalstep)
