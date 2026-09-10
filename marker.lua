@@ -173,36 +173,36 @@ local function build_inscription_formspec(target)
         'box[0,0;10.2,9.6;#16181f]',
 
         -- Modern styled buttons and labels with tactile hover and pressed states
-        'style_type[button,button_exit;border=false;content_offset=0;font=bold]',
+        'style_type[button,button_exit;border=true;content_offset=0;font=bold]',
         'style_type[button:pressed,button_exit:pressed;content_offset=0,1]',
         'style_type[image_button;border=false;content_offset=0]',
         'style_type[image_button:pressed;content_offset=0,1]',
         'style_type[label;font=bold]',
 
         -- Top-right Close Button (✕)
-        'style[close_btn;bgcolor=#00000000;textcolor=#8e95a5;border=false;font=bold;font_size=18;bgcolor_hovered=#ff525222;bgcolor_pressed=#d32f2f]',
-        'style[close_btn:hovered;bgcolor=#ff525222;textcolor=#ff5252]',
-        'style[close_btn:pressed;bgcolor=#d32f2f;textcolor=#ffffff;content_offset=0,1]',
+        'style[close_btn;border=false;font=bold;font_size=18;textcolor=#8e95a5]',
+        'style[close_btn:hovered;border=false;textcolor=#ff5252]',
+        'style[close_btn:pressed;border=false;textcolor=#ffffff;content_offset=0,1]',
 
         -- Check Length / Refresh Button
-        'style[check_len;bgcolor=#242834;textcolor=#ffd700;border=false;font=bold;font_size=12;bgcolor_hovered=#33394a;bgcolor_pressed=#1a1d26]',
-        'style[check_len:hovered;bgcolor=#33394a;textcolor=#ffffff]',
-        'style[check_len:pressed;bgcolor=#1a1d26;textcolor=#ffd700;content_offset=0,1]',
+        'style[check_len;border=true;bgcolor=#242834;textcolor=#ffd700;font=bold;font_size=12;bgcolor_hovered=#374151;bgcolor_pressed=#181b22]',
+        'style[check_len:hovered;bgcolor=#374151;textcolor=#ffffff]',
+        'style[check_len:pressed;bgcolor=#181b22;textcolor=#ffd700;content_offset=0,1]',
 
         -- Primary Action: Save Inscription (Emerald Green)
-        'style[save;bgcolor=#2e7d32;textcolor=#ffffff;border=false;font=bold;bgcolor_hovered=#388e3c;bgcolor_pressed=#1b5e20]',
+        'style[save;border=true;bgcolor=#2e7d32;textcolor=#ffffff;font=bold;bgcolor_hovered=#388e3c;bgcolor_pressed=#1b5e20]',
         'style[save:hovered;bgcolor=#388e3c;textcolor=#ffffff]',
         'style[save:pressed;bgcolor=#1b5e20;textcolor=#e8f5e9;content_offset=0,1]',
 
         -- Destructive Action: Erase Inscription (Warning Crimson)
-        'style[erase;bgcolor=#4a1c1c;textcolor=#ffcdd2;border=false;bgcolor_hovered=#b71c1c;bgcolor_pressed=#2c0e0e]',
-        'style[erase:hovered;bgcolor=#b71c1c;textcolor=#ffffff]',
-        'style[erase:pressed;bgcolor=#2c0e0e;textcolor=#ff8a80;content_offset=0,1]',
+        'style[erase;border=true;bgcolor=#7f1d1d;textcolor=#ffcdd2;font=bold;bgcolor_hovered=#b91c1c;bgcolor_pressed=#450a0a]',
+        'style[erase:hovered;bgcolor=#b91c1c;textcolor=#ffffff]',
+        'style[erase:pressed;bgcolor=#450a0a;textcolor=#ff8a80;content_offset=0,1]',
 
         -- Secondary Action: Cancel (Charcoal Slate)
-        'style[cancel;bgcolor=#2c303c;textcolor=#cfd8dc;border=false;bgcolor_hovered=#454c5e;bgcolor_pressed=#1f222b]',
-        'style[cancel:hovered;bgcolor=#454c5e;textcolor=#ffffff]',
-        'style[cancel:pressed;bgcolor=#1f222b;textcolor=#90a4ae;content_offset=0,1]',
+        'style[cancel;border=true;bgcolor=#374151;textcolor=#e5e7eb;font=bold;bgcolor_hovered=#4b5563;bgcolor_pressed=#1f2937]',
+        'style[cancel:hovered;bgcolor=#4b5563;textcolor=#ffffff]',
+        'style[cancel:pressed;bgcolor=#1f2937;textcolor=#9ca3af;content_offset=0,1]',
 
         -- Header Bar with WaySigns Stylus Icon and Close Button
         'box[0,0;10.2,0.95;#1b1f28]',
