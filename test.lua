@@ -6481,7 +6481,7 @@ print('--- Test 88: Square Aspect Ratio on Quickview Nodes & Containment of 5 Li
     assert(bw_str and bh_str, 'Background texture must contain [combine:WxH tag')
     local bw, bh = tonumber(bw_str), tonumber(bh_str)
     assert(bw == bh, 'Plaque must be perfectly SQUARE (bw == bh), got: ' .. bw .. 'x' .. bh)
-    assert(bw >= 320, 'Plaque dimension must accommodate content and base dimension, got: ' .. bw)
+    assert(bw == 320 and bh == 320, 'Square plaque must be exactly 320x320 at scale 2.0, matching sign scale ratio! got: ' .. bw .. 'x' .. bh)
 
     -- Verify line positions and containment
     local lines = sign_data_with_qv.wrapped.pages[1]

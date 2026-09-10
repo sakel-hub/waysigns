@@ -1413,8 +1413,7 @@ function waysigns.render_hud(player, state)
     if has_quickview_items then
         -- Force square plaque when quickview items are displayed, providing ample 1:1 vertical canvas
         local base_dim = math.floor(160 * hud_scale)
-        local target_dim = math.max(base_dim, math.max(req_w, req_h))
-        board_w = math.max(64, math.min(max_screen_w, target_dim))
+        board_w = math.max(64, math.min(max_screen_w, base_dim))
         board_h = math.max(64, math.min(max_screen_h, board_w))
         board_w = board_h
         -- Re-calculate exact dock metrics using actual board_w
@@ -1429,8 +1428,14 @@ function waysigns.render_hud(player, state)
         board_w = board_h
     elseif waysigns.settings.match_aspect_ratio then
         -- Static plaque dimensions preserving sign/node adaptive aspect ratio
-        local base_w = math.floor(220 * hud_scale)
-        local base_h = math.floor(base_w / ar)
+        local base_w, base_h
+        if ar >= 1.375 then
+            base_w = math.floor(220 * hud_scale)
+            base_h = math.floor(base_w / ar)
+        else
+            base_h = math.floor(160 * hud_scale)
+            base_w = math.floor(base_h * ar)
+        end
         board_w = base_w
         board_h = base_h
 
