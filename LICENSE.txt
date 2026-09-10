@@ -463,10 +463,15 @@ GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later), by SaKeL
 
 **CC-BY-SA-4.0, by SaKeL**
 
-- waysigns_corner.png
 - waysigns_frame_vignette.png
+- waysigns_marker.png
+- waysigns_sign_glass.png
+- waysigns_sign_gold.png
+- waysigns_sign_slate.png
 - waysigns_sign_steel.png
 - waysigns_sign_wood.png
+- waysigns_waypoint.png
+- waysigns_waypoint_silver.png
 
 ### Media
 
