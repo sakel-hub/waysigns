@@ -108,7 +108,7 @@ core = {
         _G.last_sound_play = { sound = sound, spec = spec }
     end,
     formspec_escape = function(text)
-        return (tostring(text or ''):gsub('\\', '\\\\'):gsub('%[', '\\['):gsub('%]', '\\]'):gsub(';', '\\;'):gsub(',', '\\,'):gsub('$', '\\$'))
+        return (tostring(text or ''):gsub('\\', '\\\\'):gsub('%[', '\\['):gsub('%]', '\\]'):gsub(';', '\\;'):gsub(',', '\\,'):gsub('%%$', '\\$'))
     end,
     record_protection_violation = function(pos, player_name)
         _G.last_protection_violation = { pos = pos, player_name = player_name }
@@ -133,6 +133,7 @@ core = {
     get_node = function(pos) return {name = 'air', param1 = 0, param2 = 0} end,
     strip_colors = function(str) return str:gsub('\x1b%(c@[^)]*%)', ''):gsub('\x1b%(b@[^)]*%)', '') end,
     strip_escapes = function(str) return str:gsub('\x1b%b()', ''):gsub('\x1bE', ''):gsub('\x1b(.)', ''):gsub('\x1b', '') end,
+    colorize = function(color, str) return '\x1b(c@' .. color .. ')' .. tostring(str or '') .. '\x1b(c@#ffffff)' end,
     get_color_escape_sequence = function(color) return '' end,
     hash_node_position = function(p)
         return (p.x or 0) + 65536 * ((p.y or 0) + 65536 * (p.z or 0))
@@ -4058,12 +4059,43 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(_G.last_shown_formspec ~= nil, 'Formspec must open for owner')
     assert(_G.last_shown_formspec.formname == 'waysigns:inscribe', 'Formname must be waysigns:inscribe')
     assert(_G.last_shown_formspec.player_name == 'alice_owner', 'Player name mismatch in formspec')
-    assert(_G.last_shown_formspec.formspec:find('textarea%[0.6,1.4;7.8,3.2;inscription;'), 'Formspec missing textarea')
-    assert(_G.last_shown_formspec.formspec:find('dropdown%[0.6,5.4;3.6,0.8;plaque;'), 'Formspec missing plaque dropdown')
 
-    -- 4. Submit formspec: protection check on receive_fields (TOCTOU protection)
+    -- Verify latest formspec version 6 and modern styled layout
+    local fs = _G.last_shown_formspec.formspec
+    assert(fs:find('formspec_version%[6%]'), 'Formspec must use formspec_version[6]')
+    assert(fs:find('size%[10.2,9.8%]'), 'Formspec size must be 10.2x9.8')
+    assert(fs:find('image%[0.40,0.22;0.50,0.50;waysigns_marker.png%]'), 'Header missing marker icon')
+    assert(fs:find('button_exit%[9.40,0.20;0.55,0.55;close_btn;✕%]'), 'Top-right "X" close button missing or not button_exit')
+    assert(fs:find('textarea%[0.50,1.65;9.20,2.00;inscription;;%]'), 'Formspec missing modern textarea')
+    assert(fs:find('image_button%[0.50,4.30;1.00,1.00;.-;plaque_sel_default;%]'), 'Default plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[1.68,4.30;1.00,1.00;waysigns_sign_wood.png;plaque_sel_wood;%]'), 'Wood plaque thumbnail swatch missing')
+    assert(fs:find('image_button%[2.86,4.30;1.00,1.00;waysigns_sign_steel.png;plaque_sel_steel;%]'), 'Steel plaque thumbnail swatch missing')
+    assert(fs:find('Live Plaque Preview:'), 'Live plaque preview card missing')
+    assert(fs:find('button_exit%[7.30,8.70;2.40,0.80;cancel;Cancel%]'), 'Cancel button must be button_exit to close dialog')
+
+    -- 4. Test interactive plaque thumbnail click (updates preview and golden halo)
     local receive_cb = core.registered_on_player_receive_fields[1]
     assert(receive_cb ~= nil, 'receive_fields callback must be registered')
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque_sel_steel = '', inscription = 'Fortress Guard' })
+    local updated_fs = _G.last_shown_formspec.formspec
+    assert(updated_fs:find('box%[2.81,4.25;1.10,1.10;#ffd700%]'), 'Steel swatch must have golden halo when selected')
+    assert(updated_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_steel.png%]'), 'Live preview must display steel plaque texture')
+    assert(updated_fs:find('Fortress Guard'), 'Live preview must display updated inscription text')
+
+    -- 5. Test Cancel button closes formspec
+    _G.last_closed_formspec = nil
+    receive_cb(owner_player, 'waysigns:inscribe', { cancel = 'Cancel' })
+    assert(_G.last_closed_formspec ~= nil and _G.last_closed_formspec.player_name == 'alice_owner' and _G.last_closed_formspec.formname == 'waysigns:inscribe',
+        'Cancel button must call core.close_formspec')
+
+    -- 6. Test top-right "X" button closes formspec
+    marker_tool.on_place(owner_player.wielded, owner_player, pointed_node)
+    _G.last_closed_formspec = nil
+    receive_cb(owner_player, 'waysigns:inscribe', { close_btn = '✕' })
+    assert(_G.last_closed_formspec ~= nil and _G.last_closed_formspec.player_name == 'alice_owner' and _G.last_closed_formspec.formname == 'waysigns:inscribe',
+        'Top-right close button must call core.close_formspec')
+
+    -- 7. Submit formspec: protection check on receive_fields (TOCTOU protection)
 
     -- Bob opened formspec before protection was set
     core.is_protected = function(pos, player_name) return false end
