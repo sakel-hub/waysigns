@@ -34,7 +34,7 @@
   - `hiking` / `hiking_redo` (hiking trail markers and directional arrows with 2.2 aspect ratio)
   - `breadcrumbs` (cave navigation markers with `label` metadata extraction)
   - `locks` (shared locked signs with composite texture filtering to strip padlock overlays)
-  - `mcl_signs` (VoxeLibre / MineClone multiline `text1`..`text4` extraction across 11 wood species)
+  - `mcl_signs` (VoxeLibre multiline `text1`..`text4` extraction across 11 wood species)
   - `jp_signs` (Japanese notice boards)
   - `ucsigns` (Unified Canvas signs and entity suppression)
   - `xdecor` (mailboxes, notices)

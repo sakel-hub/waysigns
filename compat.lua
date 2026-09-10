@@ -341,7 +341,7 @@ if core.get_modpath('breadcrumbs') then
     })
 end
 
--- Register mcl_signs (VoxeLibre / MineClone2 / Mineclonia) if present
+-- Register mcl_signs (VoxeLibre) if present
 if core.get_modpath('mcl_signs') then
     local mcl_woods = {
         'wood', 'acacia', 'birch', 'dark_oak', 'jungle', 'spruce',

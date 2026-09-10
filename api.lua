@@ -271,12 +271,8 @@ function waysigns.invalidate_cache(pos)
     if not pos then
         return
     end
-    local hash = (core.hash_node_position and core.hash_node_position(pos))
-        or (core.pos_to_string and core.pos_to_string(pos))
-        or string.format('%d,%d,%d', pos.x or 0, pos.y or 0, pos.z or 0)
-    local str_key = (core.pos_to_string and core.pos_to_string(pos))
-        or (vector and vector.to_string and vector.to_string(pos))
-        or string.format('%d,%d,%d', pos.x or 0, pos.y or 0, pos.z or 0)
+    local hash = core.hash_node_position(pos)
+    local str_key = core.pos_to_string(pos)
     if waysigns.node_cache[hash] ~= nil then
         waysigns.node_cache[hash] = nil
         node_cache_count = math.max(0, node_cache_count - 1)
@@ -299,15 +295,13 @@ function waysigns.invalidate_cache(pos)
             end
         end
     end
-    if core.get_connected_players then
-        for _, player in ipairs(core.get_connected_players()) do
-            local name = player:get_player_name()
-            local state = waysigns.players[name]
-            if state and state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, pos) then
-                state.check_timer = waysigns.settings.check_interval
-                if player.get_pos and player:get_pos() then
-                    waysigns.update_player(player, 0)
-                end
+    for _, player in ipairs(core.get_connected_players()) do
+        local name = player:get_player_name()
+        local state = waysigns.players[name]
+        if state and state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, pos) then
+            state.check_timer = waysigns.settings.check_interval
+            if player:get_pos() then
+                waysigns.update_player(player, 0)
             end
         end
     end
@@ -544,7 +538,7 @@ function waysigns.extract_text(meta)
         return label
     end
 
-    -- 4. Multi-line sign fields (mcl_signs / VoxeLibre / MineClone2 / Mineclonia)
+    -- 4. Multi-line sign fields (mcl_signs / VoxeLibre)
     local t1 = meta:get_string('text1')
     local t2 = meta:get_string('text2')
     local t3 = meta:get_string('text3')
@@ -2428,15 +2422,13 @@ function waysigns.set_entity_inscription(object, text, plaque, color, player_nam
         infotext = text or '',
     })
 
-    if core.get_connected_players then
-        for _, p in ipairs(core.get_connected_players()) do
-            local pname = p:get_player_name()
-            local pstate = waysigns.players[pname]
-            if pstate and pstate.is_visible and pstate.current_sign_data and pstate.current_sign_data.is_entity then
-                pstate.check_timer = waysigns.settings.check_interval
-                if p.get_pos and p:get_pos() then
-                    waysigns.update_player(p, 0)
-                end
+    for _, p in ipairs(core.get_connected_players()) do
+        local pname = p:get_player_name()
+        local pstate = waysigns.players[pname]
+        if pstate and pstate.is_visible and pstate.current_sign_data and pstate.current_sign_data.is_entity then
+            pstate.check_timer = waysigns.settings.check_interval
+            if p:get_pos() then
+                waysigns.update_player(p, 0)
             end
         end
     end
@@ -2474,7 +2466,7 @@ function waysigns.on_player_inventory_action(player, action, inventory, inventor
         return
     end
 
-    local inv_loc = inventory and inventory.get_location and inventory:get_location()
+    local inv_loc = inventory and inventory:get_location()
     if inv_loc and (inv_loc.type == 'node' or inv_loc.type == 'nodemeta') and inv_loc.pos then
         waysigns.invalidate_cache(inv_loc.pos)
     end
