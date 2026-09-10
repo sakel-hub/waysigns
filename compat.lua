@@ -13,10 +13,10 @@
     Lesser General Public License for more details.
 
     You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to juraj.vajda@gmail.com
+    License along with this library; if not, see <https://www.gnu.org/licenses/>.
 --]]
 
--- Register standard Minetest Game signs if present
+-- Register standard Luanti Game signs if present
 if core.get_modpath('default') then
     waysigns.register_sign('default:sign_wall_wood', {
         tile = 'default_sign_wall_wood.png',
@@ -471,31 +471,160 @@ if core.get_modpath('hiking') then
     end
 end
 
+---Split composite texture string by overlay operator '^' (ignoring '^[' modifiers and parenthesized groups)
+---Preserves texture modifiers (e.g. ^[transformFX, ^[sheet:...) attached to each layer
+---@param str string Raw composite texture string
+---@return string[] layers Array of texture layer strings
+local function split_texture_layers(str)
+    local layers = {}
+    local cur = {}
+    local i = 1
+    local len = #str
+    local paren_depth = 0
+    while i <= len do
+        local c = str:sub(i, i)
+        if c == '(' then
+            paren_depth = paren_depth + 1
+            table.insert(cur, c)
+        elseif c == ')' then
+            paren_depth = math.max(0, paren_depth - 1)
+            table.insert(cur, c)
+        elseif c == '^' and paren_depth == 0 and str:sub(i + 1, i + 1) ~= '[' then
+            table.insert(layers, table.concat(cur))
+            cur = {}
+        else
+            table.insert(cur, c)
+        end
+        i = i + 1
+    end
+    if #cur > 0 then
+        table.insert(layers, table.concat(cur))
+    end
+    return layers
+end
+
+---Check if a layer in a composite texture is an obsolete sign text or entity artifact
+---@param layer string Layer texture string
+---@return boolean is_artifact True if the layer should be discarded
+local function is_unwanted_sign_artifact(layer)
+    local lower = layer:lower()
+    if lower:find('signs_lib_text')
+        or lower:find('mcl_signs_text')
+        or lower:find('_text%.png')
+        or lower:find('sign_text%.png')
+        or lower:find('lock16%.png')
+        or lower:find('signs_lib_lock')
+        or lower:find('_edges%.png')
+        or lower:find('_inv%.png')
+        or lower:find('pole_mount') then
+        return true
+    end
+    return false
+end
+
+waysigns.animated_frame_cache = waysigns.animated_frame_cache or {}
+
+---Inspect PNG image header or animation metadata to determine vertical frame count
+---@param base string Clean texture filename (e.g. "xdecor_television_front_animated.png")
+---@param modname string|nil Inferred mod name (e.g. "xdecor")
+---@param aspect_w number|nil Frame width (default 16)
+---@param aspect_h number|nil Frame height (default 16)
+---@return number num_frames Detected number of vertical frames (>= 1)
+function waysigns.get_texture_frame_count(base, modname, aspect_w, aspect_h)
+    if not base or base == '' then return 1 end
+    if waysigns.animated_frame_cache[base] ~= nil then
+        return waysigns.animated_frame_cache[base]
+    end
+
+    aspect_w = aspect_w or 16
+    aspect_h = aspect_h or 16
+
+    local candidates = {}
+    if modname then
+        local mp = core.get_modpath(modname)
+        if mp then
+            table.insert(candidates, mp .. '/textures/' .. base)
+        end
+    end
+    local inferred_mod = base:match('^([%w_]+)_')
+    if inferred_mod and inferred_mod ~= modname then
+        local mp = core.get_modpath(inferred_mod)
+        if mp then
+            table.insert(candidates, mp .. '/textures/' .. base)
+        end
+    end
+
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, 'rb')
+        if f then
+            local header = f:read(24)
+            f:close()
+            if header and #header >= 24 and header:sub(1, 8) == '\137PNG\r\n\026\n' and header:sub(13, 16) == 'IHDR' then
+                local b = { header:byte(17, 24) }
+                local pw = b[1] * 16777216 + b[2] * 65536 + b[3] * 256 + b[4]
+                local ph = b[5] * 16777216 + b[6] * 65536 + b[7] * 256 + b[8]
+                if pw > 0 and ph > pw then
+                    local frame_h = math.floor(pw * (aspect_h / aspect_w))
+                    if frame_h > 0 then
+                        local num_frames = math.floor(ph / frame_h)
+                        if num_frames > 1 then
+                            waysigns.animated_frame_cache[base] = num_frames
+                            return num_frames
+                        end
+                    end
+                end
+                waysigns.animated_frame_cache[base] = 1
+                return 1
+            end
+        end
+    end
+
+    waysigns.animated_frame_cache[base] = 1
+    return 1
+end
+
 ---Sanitize and extract the clean base texture name from a node definition tile
----Extracts single textures from composites or multi-layer specs while stripping lock/text overlays.
+---Combines multi-layer visual specs (e.g. beehive honey overlays, state overlays)
+---while stripping obsolete sign text entities and preserving layer transformations.
+---Detects animated texture sheets (e.g. xdecor:television, furnaces, torches) and crops frame 0.
 ---@param raw_tile any String or table definition from node_def.tiles
 ---@param is_metal boolean|nil Whether sign is metal/stone (determines fallback texture)
+---@param nodename string|nil Technical node name for mod/asset location
 ---@return string tile_str Sanitized clean texture filename for background generation
-local function clean_tile_name(raw_tile, is_metal)
+local function clean_tile_name(raw_tile, is_metal, nodename)
     local fallback = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD
     if not raw_tile then
         return fallback
     end
 
+    local anim_def = nil
     local tile_str = ''
     if type(raw_tile) == 'string' then
         tile_str = raw_tile
-    elseif type(raw_tile) == 'table' and raw_tile.name then
-        tile_str = raw_tile.name
+    elseif type(raw_tile) == 'table' then
+        if raw_tile.animation then
+            anim_def = raw_tile.animation
+        end
+        if raw_tile.name then
+            tile_str = raw_tile.name
+            if raw_tile.color and raw_tile.color ~= 'white' and raw_tile.color ~= '' then
+                tile_str = tile_str .. '^[multiply:' .. raw_tile.color
+            end
+        end
     end
 
     if tile_str == '' then
         return fallback
     end
 
-    -- Edge cases: inventorycube, verticalframe animations, or unbalanced parentheses
-    if tile_str:find('%[inventorycube') or tile_str:find('%[verticalframe') then
+    -- Edge cases: inventorycube or unbalanced parentheses
+    if tile_str:find('%[inventorycube') then
         return fallback
+    end
+
+    -- Normalize any existing verticalframe animation to crop frame 0
+    if tile_str:find('%[verticalframe') then
+        tile_str = tile_str:gsub('%[verticalframe:(%d+):%d+', '[verticalframe:%1:0')
     end
 
     local open_paren, close_paren = 0, 0
@@ -508,41 +637,25 @@ local function clean_tile_name(raw_tile, is_metal)
         end
     end
 
-    -- If composite texture (contains '^' separating texture layers), extract the underlying
-    -- sign/background layer while discarding locks, overlays, text glyphs, and edge trims.
+    -- If composite texture (contains '^' separating texture layers), filter out obsolete
+    -- sign text entities, edges, and mount artifacts while combining all valid visual layers
+    -- and preserving texture transformations.
     -- NOTE: If the texture is an intentional grouped composite (e.g. hiking textures like "((hiking_white..."),
     -- preserve the expression intact.
     local is_grouped_composite = (tile_str:sub(1, 1) == '(' and open_paren == close_paren and open_paren > 0)
 
     if not is_grouped_composite and (tile_str:find('%^[^%[]') or (tile_str:find('%^') and not tile_str:find('%^%['))) then
-        local candidates = {}
-        for part in tile_str:gmatch('([^%^]+)') do
-            local clean_part = part:match('^%s*(.-)%s*$')
-            if clean_part:find('%.png') then
-                table.insert(candidates, clean_part)
+        local raw_layers = split_texture_layers(tile_str)
+        local valid_layers = {}
+        for _, layer in ipairs(raw_layers) do
+            local clean_layer = layer:match('^%s*(.-)%s*$')
+            if clean_layer and clean_layer ~= '' and not is_unwanted_sign_artifact(clean_layer) then
+                table.insert(valid_layers, clean_layer)
             end
         end
-        local chosen = nil
-        for _, c in ipairs(candidates) do
-            local lower = c:lower()
-            if not lower:find('_text')
-                and not lower:find('_lock')
-                and not lower:find('lock16')
-                and not lower:find('_icon')
-                and not lower:find('_edges')
-                and not lower:find('_inv')
-                and not lower:find('pole_mount')
-                and not lower:find('mcl_signs')
-                and not lower:find('ucsigns') then
-                chosen = c
-                if lower:find('sign') or lower:find('wood') or lower:find('steel')
-                    or lower:find('board') or lower:find('wall') or lower:find('plank') then
-                    break
-                end
-            end
-        end
-        if chosen then
-            tile_str = chosen
+
+        if #valid_layers > 0 then
+            tile_str = table.concat(valid_layers, '^')
         else
             return fallback
         end
@@ -565,6 +678,19 @@ local function clean_tile_name(raw_tile, is_metal)
     if lower_base:find('_inv%.png$') or lower_base:find('_edges%.png$') or lower_base:find('_sides%.png$') or lower_base:find('lock16%.png$')
         or lower_base:find('mcl_signs') or lower_base:find('ucsigns') then
         return fallback
+    end
+
+    -- Vertical animation sheets: crop 1st frame (frame 0) so sheets are never squished into plaques
+    if not tile_str:find('%[verticalframe') and not tile_str:find('%[combine:') and not is_grouped_composite then
+        local aspect_w = anim_def and anim_def.aspect_w or 16
+        local aspect_h = anim_def and anim_def.aspect_h or 16
+        local modname = nodename and nodename:match('^([%w_]+):')
+        local num_frames = waysigns.get_texture_frame_count(base, modname, aspect_w, aspect_h)
+        if num_frames > 1 then
+            tile_str = tile_str .. '^[verticalframe:' .. num_frames .. ':0'
+        elseif anim_def and (anim_def.type == 'vertical_frames' or anim_def.type == nil) then
+            tile_str = '[combine:' .. aspect_w .. 'x' .. aspect_h .. ':0,0=' .. tile_str
+        end
     end
 
     -- 1. signs_lib or basic_signs 64x32 dual sign front/back sheet (2x1 grid: front is 0,0)
@@ -624,6 +750,7 @@ local function clean_tile_name(raw_tile, is_metal)
 
     return tile_str
 end
+waysigns.clean_tile_name = clean_tile_name
 
 ---Check if a node at position is a recognized sign and return its extracted data
 ---Scans node cache, custom resolvers, pre-registered signs, and generic sign detection fallbacks.
@@ -655,7 +782,7 @@ function waysigns.get_sign_data(pos, node)
             custom_data.raw_text = custom_data.text
             custom_data.aspect_ratio = custom_data.aspect_ratio or waysigns.get_aspect_ratio(node.name, nil, nil)
             custom_data.wrapped = waysigns.wrap_text(custom_data.text, nil, nil, custom_data.text_color)
-            waysigns.node_cache[pos_key] = custom_data
+            waysigns.set_cached_node(pos_key, custom_data)
             return custom_data
         end
     end
@@ -699,15 +826,15 @@ function waysigns.get_sign_data(pos, node)
             end
         end
     elseif node_def._itemframe_texture and node_def._itemframe_texture ~= '' then
-        base_tile = clean_tile_name(node_def._itemframe_texture, is_metal)
+        base_tile = clean_tile_name(node_def._itemframe_texture, is_metal, node.name)
     elseif node_def._sign_texture and node_def._sign_texture ~= '' then
-        base_tile = clean_tile_name(node_def._sign_texture, is_metal)
+        base_tile = clean_tile_name(node_def._sign_texture, is_metal, node.name)
     elseif (node_def.tiles and (type(node_def.tiles) == 'table' or type(node_def.tiles) == 'string'))
         or (node_def.tile_images and (type(node_def.tile_images) == 'table' or type(node_def.tile_images) == 'string')) then
         local raw_tiles = node_def.tiles or node_def.tile_images
         local tile_candidates = {}
         if type(raw_tiles) == 'table' then
-            -- Face 6 is Minetest standard front face for facedir/nodebox
+            -- Face 6 is Luanti standard front face for facedir/nodebox
             if #raw_tiles >= 6 then
                 table.insert(tile_candidates, raw_tiles[6])
             end
@@ -724,7 +851,7 @@ function waysigns.get_sign_data(pos, node)
         local fallback_tile = nil
         local fallback = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD
         for _, t in ipairs(tile_candidates) do
-            local cleaned = clean_tile_name(t, is_metal)
+            local cleaned = clean_tile_name(t, is_metal, node.name)
             if cleaned and cleaned ~= fallback then
                 local lower = cleaned:lower()
                 if lower:find('sign') or lower:find('board') or lower:find('blade') or lower:find('stele')
@@ -738,9 +865,9 @@ function waysigns.get_sign_data(pos, node)
                 fallback_tile = cleaned
             end
         end
-        base_tile = best_tile or fallback_tile or clean_tile_name(tile_candidates[1], is_metal)
+        base_tile = best_tile or fallback_tile or clean_tile_name(tile_candidates[1], is_metal, node.name)
     elseif node_def.inventory_image and node_def.inventory_image ~= '' then
-        base_tile = clean_tile_name(node_def.inventory_image, is_metal)
+        base_tile = clean_tile_name(node_def.inventory_image, is_metal, node.name)
     end
 
     local text_color
@@ -751,7 +878,7 @@ function waysigns.get_sign_data(pos, node)
         is_metal = reg_def.is_metal or false
         text_color = reg_def.text_color or (is_metal and 0xEEEEEE or 0xFFFFFF)
         local raw_tile = reg_def.tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
-        tile = clean_tile_name(raw_tile, is_metal)
+        tile = clean_tile_name(raw_tile, is_metal, node.name)
         aspect_ratio = reg_def.aspect_ratio or waysigns.get_aspect_ratio(node.name, node_def, reg_def)
     else
         -- 3. Generic sign detection
@@ -770,7 +897,7 @@ function waysigns.get_sign_data(pos, node)
 
         text_color = is_metal and 0xEEEEEE or 0xFFFFFF
         local raw_tile = base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
-        tile = clean_tile_name(raw_tile, is_metal)
+        tile = clean_tile_name(raw_tile, is_metal, node.name)
         aspect_ratio = waysigns.get_aspect_ratio(node.name, node_def, nil)
     end
 
@@ -833,7 +960,488 @@ function waysigns.get_sign_data(pos, node)
         wrapped = waysigns.wrap_text(text, nil, nil, text_color)
     }
 
-    waysigns.node_cache[pos_key] = data
+    waysigns.set_cached_node(pos_key, data)
+    return data
+end
+
+---Extract the best front-face texture for an infotext node (e.g. chest front, furnace front).
+---Detects mesh nodes and uses a fallback texture instead of distorted UV mesh maps.
+---Prioritizes 'front'/'face' keywords and uses Luanti standard face 6 (-Z) for 6-tile nodeboxes.
+---@param node_def table|nil Node definition table from core.registered_nodes
+---@param nodename string Technical node name
+---@param is_metal boolean Whether node is metal/stone
+---@return string tile Clean front tile texture name or fallback
+local function get_node_front_tile(node_def, nodename, is_metal)
+    local fallback = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD
+    if not node_def then
+        return fallback
+    end
+
+    -- 1. Detect mesh nodes: mesh UV maps cannot be mapped cleanly to 2D boards, so use fallback
+    local is_mesh = (node_def.drawtype == 'mesh')
+        or (node_def.mesh ~= nil and node_def.mesh ~= '')
+        or (node_def.visual == 'mesh')
+        or not not nodename:find('^ucsigns:')
+        or not not nodename:find('mesh')
+        or (core.get_item_group(nodename, 'mesh') > 0)
+        or (core.get_item_group(nodename, 'ucsign') > 0)
+
+    if is_mesh then
+        return fallback
+    end
+
+    local raw_tiles = node_def.tiles or node_def.tile_images
+    if not raw_tiles then
+        if node_def.inventory_image and node_def.inventory_image ~= '' then
+            return clean_tile_name(node_def.inventory_image, is_metal, nodename) or fallback
+        end
+        return fallback
+    end
+
+    if type(raw_tiles) == 'string' and raw_tiles ~= '' then
+        return clean_tile_name(raw_tiles, is_metal, nodename) or fallback
+    end
+
+    if type(raw_tiles) ~= 'table' or #raw_tiles == 0 then
+        return fallback
+    end
+
+    local function get_tile_candidate(t, idx)
+        if not node_def.overlay_tiles or type(node_def.overlay_tiles) ~= 'table' or not node_def.overlay_tiles[idx] then
+            return t
+        end
+        local ot = node_def.overlay_tiles[idx]
+        local base_str = (type(t) == 'string' and t) or (type(t) == 'table' and t.name) or ''
+        local ot_str = (type(ot) == 'string' and ot) or (type(ot) == 'table' and ot.name) or ''
+        if ot_str ~= '' then
+            if type(ot) == 'table' and ot.color and ot.color ~= 'white' and ot.color ~= '' then
+                ot_str = ot_str .. '^[multiply:' .. ot.color
+            end
+            if base_str ~= '' then
+                return base_str .. '^' .. ot_str
+            end
+            return ot_str
+        end
+        return t
+    end
+
+    -- 2. Priority 1: Check for explicit front-facing keywords across all tile definitions
+    -- (front, face, door, lock, panel, screen, dial, meter, gauge, display)
+    local front_keywords = {
+        'front', 'face', 'door', 'lock', 'panel', 'screen',
+        'dial', 'meter', 'gauge', 'display', 'window',
+    }
+    for idx, t in ipairs(raw_tiles) do
+        local raw_name = (type(t) == 'string' and t) or (type(t) == 'table' and t.name) or ''
+        local lower = raw_name:lower()
+        for _, kw in ipairs(front_keywords) do
+            if lower:find(kw) then
+                local cand = get_tile_candidate(t, idx)
+                local cleaned = clean_tile_name(cand, is_metal, nodename)
+                if cleaned and cleaned ~= fallback then
+                    return cleaned
+                end
+                break
+            end
+        end
+    end
+
+    -- 3. Priority 2: In Luanti standard cube/nodebox mapping, tile min(6, #raw_tiles) is the front face:
+    -- 1 = +Y (top), 2 = -Y (bottom), 3 = +X (right), 4 = -X (left), 5 = +Z (back), 6 = -Z (front).
+    -- For 2 tiles (top, sides/bottom), tile 2 is the front/side face.
+    -- For 3 tiles (top, bottom, sides), tile 3 is the front/side face.
+    -- For 4 tiles, tile 4 is front. For 5 tiles, tile 5 is front. For 6 tiles, tile 6 is front.
+    if #raw_tiles >= 2 then
+        local front_idx = math.min(6, #raw_tiles)
+        local front_cand = get_tile_candidate(raw_tiles[front_idx], front_idx)
+        local cleaned = clean_tile_name(front_cand, is_metal, nodename)
+        if cleaned and cleaned ~= fallback then
+            return cleaned
+        end
+    end
+
+    -- 4. Priority 3: Check remaining side faces (indices 3, 4, 5, 2), avoiding index 1 (top face)
+    for _, idx in ipairs({ 3, 4, 5, 2 }) do
+        if raw_tiles[idx] then
+            local cleaned = clean_tile_name(raw_tiles[idx], is_metal, nodename)
+            if cleaned and cleaned ~= fallback then
+                return cleaned
+            end
+        end
+    end
+
+    -- 5. Priority 4: Reverse search through tiles ignoring any tile containing 'top' or 'up'
+    for i = #raw_tiles, 1, -1 do
+        local t = raw_tiles[i]
+        local raw_name = (type(t) == 'string' and t) or (type(t) == 'table' and t.name) or ''
+        local lower = raw_name:lower()
+        if not lower:find('top') and not lower:find('up') then
+            local cleaned = clean_tile_name(t, is_metal, nodename)
+            if cleaned and cleaned ~= fallback then
+                return cleaned
+            end
+        end
+    end
+
+    -- 6. Last resort: any valid cleaned tile
+    for _, t in ipairs(raw_tiles) do
+        local cleaned = clean_tile_name(t, is_metal, nodename)
+        if cleaned and cleaned ~= fallback then
+            return cleaned
+        end
+    end
+
+    return fallback
+end
+
+---Retrieve the visual texture representation for an item or node name
+---@param item_name string Registered item or node name (e.g. "default:apple", "default:wood")
+---@return string texture Texture specifier or image filename
+function waysigns.get_item_texture(item_name)
+    if not item_name or item_name == '' or item_name == 'air' or item_name == 'ignore' then
+        return 'waysigns_blank.png'
+    end
+
+    local def = core.registered_items[item_name]
+
+    if not def then
+        return 'unknown_item.png'
+    end
+
+    if def.inventory_image and def.inventory_image ~= '' then
+        return def.inventory_image
+    end
+
+    if def.wield_image and def.wield_image ~= '' then
+        return def.wield_image
+    end
+
+    if def.tiles and #def.tiles > 0 then
+        local function extract_tile_name(t)
+            if type(t) == 'table' then
+                return t.name or 'unknown_node.png'
+            elseif type(t) == 'string' then
+                return t
+            end
+            return 'unknown_node.png'
+        end
+
+        local t1 = extract_tile_name(def.tiles[1])
+        local dt = def.drawtype
+        if dt == 'plantlike' or dt == 'plantlike_rooted' or dt == 'torchlike'
+            or dt == 'signlike' or dt == 'raillike' or dt == 'fencelike' then
+            return t1
+        end
+
+        local t2 = extract_tile_name(def.tiles[3] or def.tiles[1])
+        local t3 = extract_tile_name(def.tiles[5] or def.tiles[3] or def.tiles[1])
+        return core.inventorycube(t1, t2, t3)
+    end
+
+    return 'unknown_item.png'
+end
+
+---Extract and aggregate items stored in a pointed container node
+---@param pos Vector Node position
+---@param node table Node table { name = string, param2 = integer }
+---@param meta any Node metadata reference
+---@param player ObjectRef|nil Pointing player object
+---@param max_slots integer|nil Maximum item slots to return (default 4)
+---@return table|nil result Inventory quickview result table or nil if empty/unauthorized
+function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
+    if not node or not node.name then
+        return nil
+    end
+
+    -- Respect container locks and protection in multiplayer
+    local respect_locks = waysigns.settings.quickview_respect_locks
+    if respect_locks ~= false then
+        local owner = (meta and meta:get_string('owner')) or ''
+        if owner ~= '' then
+            if not player then
+                return nil
+            end
+            local player_name = player:get_player_name()
+            local is_owner = (owner == player_name)
+            local is_bypass = core.check_player_privs(player, 'protection_bypass')
+            if not is_owner and not is_bypass then
+                return nil
+            end
+        end
+        if player then
+            local player_name = player:get_player_name()
+            if core.is_protected(pos, player_name) then
+                local is_bypass = core.check_player_privs(player, 'protection_bypass')
+                if not is_bypass then
+                    return nil
+                end
+            end
+        end
+    end
+
+    local item_order = {}
+    local item_map = {}
+    local total_item_count = 0
+
+    local function add_stacks(stacks)
+        if not stacks then return end
+        for _, stack in ipairs(stacks) do
+            if stack and not stack:is_empty() then
+                local item_name = stack:get_name()
+                local count = stack:get_count()
+                total_item_count = total_item_count + count
+                if not item_map[item_name] then
+                    local item_def = core.registered_items[item_name] or {}
+                    local desc = stack:get_short_description()
+                    if not desc or desc == '' then
+                        desc = stack:get_description()
+                    end
+                    if not desc or desc == '' then
+                        desc = item_def.description or item_name
+                    end
+                    desc = waysigns.strip_all_escapes(desc)
+                    desc = desc:gsub('[\r\n].*$', ''):gsub('^%s+', ''):gsub('%s+$', '')
+                    if desc == '' then
+                        desc = item_name
+                    end
+                    local entry = {
+                        name = item_name,
+                        count = 0,
+                        desc = desc,
+                        icon = waysigns.get_item_texture(item_name),
+                    }
+                    item_map[item_name] = entry
+                    item_order[#item_order + 1] = entry
+                end
+                item_map[item_name].count = item_map[item_name].count + count
+            end
+        end
+    end
+
+    local function inspect_inv_lists(inv)
+        if not inv then return false end
+        local checked_lists = {}
+        local list_names = {}
+        local priority_lists = { 'main', 'dst', 'src', 'fuel', 'books', 'vessels', 'storage', 'input', 'output' }
+        for _, lname in ipairs(priority_lists) do
+            if not checked_lists[lname] and inv.get_list and inv:get_list(lname) then
+                checked_lists[lname] = true
+                list_names[#list_names + 1] = lname
+            end
+        end
+        if inv.get_lists then
+            local all_lists = inv:get_lists()
+            if all_lists then
+                local extra_lists = {}
+                for lname, _ in pairs(all_lists) do
+                    if not checked_lists[lname] then
+                        checked_lists[lname] = true
+                        extra_lists[#extra_lists + 1] = lname
+                    end
+                end
+                table.sort(extra_lists)
+                for _, lname in ipairs(extra_lists) do
+                    list_names[#list_names + 1] = lname
+                end
+            end
+        end
+        local found = false
+        for _, lname in ipairs(list_names) do
+            local list = inv:get_list(lname)
+            if list and #list > 0 then
+                add_stacks(list)
+                found = true
+            end
+        end
+        return found
+    end
+
+    local base_name = node.name:gsub('_open$', '')
+
+    -- 1. Check custom resolvers registered via waysigns.register_inventory_resolver
+    local custom_resolver = waysigns.custom_inventory_resolvers and (waysigns.custom_inventory_resolvers[node.name] or waysigns.custom_inventory_resolvers[base_name])
+    if custom_resolver then
+        local res = custom_resolver(pos, node, meta, player)
+        if res then
+            if res.get_list or res.get_lists then
+                inspect_inv_lists(res)
+            elseif type(res) == 'table' then
+                add_stacks(res)
+            end
+        end
+    end
+
+    -- 2. Inspect standard node inventory
+    if #item_order == 0 and meta then
+        local inv = meta:get_inventory()
+        if inv then
+            inspect_inv_lists(inv)
+        end
+    end
+
+    -- 3. Check player-bound inventory (e.g. x_obsidianmese:chest, enderchests)
+    if #item_order == 0 and player then
+        local pinv = player:get_inventory()
+        if pinv and pinv.get_list then
+            local plist = pinv:get_list(node.name) or pinv:get_list(base_name)
+            if (not plist or #plist == 0) and (node.name:find('enderchest') or node.name:find('ender_chest')) then
+                plist = pinv:get_list('enderchest') or pinv:get_list('mcl_enderchest')
+            end
+            if plist then
+                add_stacks(plist)
+            end
+        end
+    end
+
+    -- 4. Check detached inventory referenced in node metadata
+    if #item_order == 0 and meta then
+        local det_name = meta:get_string('detached_inventory')
+        if det_name == '' then
+            det_name = meta:get_string('inv_id')
+        end
+        if det_name == '' then
+            det_name = meta:get_string('inv_name')
+        end
+        if det_name ~= '' then
+            local dinv = core.get_inventory({ type = 'detached', name = det_name })
+            if dinv then
+                inspect_inv_lists(dinv)
+            end
+        end
+    end
+
+    if #item_order == 0 then
+        return nil
+    end
+
+    local default_limit = waysigns.settings.quickview_max_slots or 32
+    local limit = math.max(1, math.min(32, max_slots or default_limit))
+    local slots = {}
+    for i = 1, math.min(#item_order, limit) do
+        slots[#slots + 1] = item_order[i]
+    end
+    local overflow = math.max(0, #item_order - limit)
+
+    -- Option A: Text Line Summary (e.g. "64x Wood, 12x Apple, 1x Steel Pickaxe")
+    -- Do not truncate item names or inventory items; 5-line wrapping with pagination displays full content
+    local summary_parts = {}
+    for i = 1, math.min(#item_order, limit) do
+        local it = item_order[i]
+        summary_parts[#summary_parts + 1] = it.count .. 'x ' .. it.desc
+    end
+    local summary_text = table.concat(summary_parts, ', ')
+    if overflow > 0 then
+        summary_text = summary_text .. ' (+' .. overflow .. ')'
+    end
+
+    local hash_parts = {}
+    for _, it in ipairs(item_order) do
+        hash_parts[#hash_parts + 1] = it.name .. '=' .. it.count
+    end
+    local inv_hash = table.concat(hash_parts, ';')
+
+    return {
+        items = slots,
+        all_items = item_order,
+        total_items = total_item_count,
+        total_distinct = #item_order,
+        overflow = overflow,
+        summary = summary_text,
+        inv_hash = inv_hash,
+    }
+end
+
+---Check if a node at position has valid infotext metadata and return its extracted data
+---Used for interactive nodes (chests, furnaces, machines, containers, etc.)
+---@param pos Vector 3D integer coordinate of the node
+---@param node table Node table containing node name and orientation param2
+---@param player ObjectRef|nil Pointing player object
+---@return table|nil infotext_data Extracted infotext data table or nil if empty/no infotext
+function waysigns.get_node_infotext_data(pos, node, player)
+    local meta = core.get_meta(pos)
+    local raw_infotext = meta:get_string('infotext')
+    if not raw_infotext or raw_infotext == '' or not raw_infotext:find('%S') then
+        return nil
+    end
+
+    local clean_info = waysigns.strip_all_escapes and waysigns.strip_all_escapes(raw_infotext) or raw_infotext
+    if not clean_info or clean_info == '' or not clean_info:find('%S') then
+        return nil
+    end
+
+    local unwrapped = clean_info:match('^"(.*)"$')
+    local cand = (unwrapped and unwrapped ~= '') and unwrapped or clean_info
+    if not waysigns.is_valid_sign_text(cand) then
+        return nil
+    end
+
+    local pos_key = core.hash_node_position(pos)
+    local player_name = player and player:get_player_name() or ''
+    local cached_node = waysigns.node_cache[pos_key]
+    local cached = (cached_node and cached_node.by_player and cached_node.by_player[player_name])
+        or (cached_node and not cached_node.by_player and cached_node)
+
+    -- Container inventory quickview extraction (with 0.5s throttling)
+    local now = (core.get_us_time and (core.get_us_time() / 1000000)) or os.clock()
+    if cached and cached.nodename == node.name and cached.cand == cand and cached.timestamp and (now - cached.timestamp < 0.5) then
+        return cached
+    end
+
+    local qv
+    if waysigns.settings.enable_inventory_quickview then
+        qv = waysigns.extract_node_inventory(pos, node, meta, player)
+    end
+
+    local has_visual_quickview = qv and qv.items and #qv.items > 0
+    local full_cand = cand
+    if not has_visual_quickview and qv and qv.summary and qv.summary ~= '' then
+        full_cand = cand .. '\n' .. qv.summary
+    end
+
+    local inv_hash = qv and qv.inv_hash or ''
+    if cached and cached.nodename == node.name and cached.raw_text == full_cand and cached.inv_hash == inv_hash and cached.is_infotext then
+        cached.timestamp = now
+        return cached
+    end
+
+    local node_def = core.registered_nodes[node.name]
+    local is_metal = not not (node.name:find('steel')
+        or node.name:find('iron')
+        or node.name:find('metal')
+        or node.name:find('stone')
+        or node.name:find('furnace')
+        or node.name:find('machine'))
+
+    local base_tile = get_node_front_tile(node_def, node.name, is_metal)
+    local is_light_bg = waysigns.is_light_background(base_tile, node.name)
+    local text_color = is_light_bg and 0x222222 or 0xFFFFFF
+
+    -- Wrapped lines for infotext: allow up to 30 chars per line and 5 lines for balanced presentation
+    local wrapped = waysigns.wrap_text(full_cand, 30, 5, text_color)
+
+    local data = {
+        nodename = node.name,
+        raw_text = full_cand,
+        text = full_cand,
+        cand = cand,
+        tile = base_tile,
+        is_metal = is_metal,
+        is_light_bg = is_light_bg,
+        text_color = text_color,
+        aspect_ratio = 1.0, -- Square 1:1 aspect ratio
+        wrapped = wrapped,
+        is_infotext = true,
+        quickview_items = qv and qv.items or nil,
+        inv_hash = inv_hash,
+        timestamp = now,
+    }
+
+    local entry = waysigns.node_cache[pos_key]
+    if not entry or not entry.by_player then
+        entry = { by_player = {} }
+        waysigns.set_cached_node(pos_key, entry)
+    end
+    entry.by_player[player_name] = data
     return data
 end
 
@@ -863,8 +1471,29 @@ local function is_preserved_street_sign(pos)
     if not waysigns.settings.enable_street_signs_entities or not pos then
         return false
     end
-    local node = core.get_node(waysigns.round_pos(pos))
-    return not not (node and node.name:match('^street_signs:'))
+    local rpos = waysigns.round_pos(pos)
+    local node = core.get_node(rpos)
+    if node and node.name:match('^street_signs:') then
+        return true
+    end
+    -- If entity is offset into air in front of the sign face, check adjacent neighbors
+    if node and node.name == 'air' then
+        local offsets = {
+            { x = 1, y = 0, z = 0 }, { x = -1, y = 0, z = 0 },
+            { x = 0, y = 1, z = 0 }, { x = 0, y = -1, z = 0 },
+            { x = 0, y = 0, z = 1 }, { x = 0, y = 0, z = -1 },
+        }
+        for _, off in ipairs(offsets) do
+            local npos = vector.add(rpos, off)
+            local nnode = core.get_node(npos)
+            if nnode and nnode.name:match('^street_signs:') then
+                if vector.distance(pos, npos) <= 0.65 then
+                    return true
+                end
+            end
+        end
+    end
+    return false
 end
 
 ---Determine if an active in-world entity should be purged by WaySigns
@@ -972,7 +1601,9 @@ local function apply_entity_suppression()
                     end
                     return
                 end
-                self.object:remove()
+                if self.object then
+                    self.object:remove()
+                end
             end)
             rawset(ent_def, 'on_step', function(self, dtime)
                 if ent_name == 'signs_lib:text' and self.object and self.object.get_pos and is_preserved_street_sign(self.object:get_pos()) then
@@ -982,7 +1613,9 @@ local function apply_entity_suppression()
                     end
                     return
                 end
-                self.object:remove()
+                if self.object then
+                    self.object:remove()
+                end
             end)
         end
     end
