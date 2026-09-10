@@ -81,6 +81,8 @@ waysigns = {
         marker_sense = core.settings:get_bool('waysigns_marker_sense', true),
         marker_sense_range = math.max(2.0, math.min(30.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),
         marker_sense_max = math.max(1, math.min(20, tonumber(core.settings:get('waysigns_marker_sense_max')) or 6)),
+        marker_sense_min_opacity = math.max(0, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_min_opacity')) or 75)),
+        marker_sense_max_opacity = math.max(10, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_max_opacity')) or 255)),
     },
     registered_signs = {},
     custom_resolvers = {},
@@ -1643,6 +1645,7 @@ function waysigns.remove_marker_waypoints(player, state)
 end
 
 ---Update 3D proximity HUD waypoint glyphs over nearby inscribed nodes and entities while holding the marker tool
+---Filters candidates to those in the player's view direction (in sight) and applies distance-based opacity progression
 ---@param player ObjectRef Player holding the marker
 ---@param state WaySignsPlayerState Player state table
 function waysigns.update_marker_waypoints(player, state)
@@ -1661,30 +1664,40 @@ function waysigns.update_marker_waypoints(player, state)
     local sense_range = waysigns.settings.marker_sense_range or 10.0
     local max_waypoints = waysigns.settings.marker_sense_max or 6
 
+    local look_dir = player.get_look_dir and player:get_look_dir()
+    if not look_dir then
+        look_dir = { x = 0, y = 0, z = 1 }
+    end
+
     local candidates = {}
 
     -- 1. Check registered inscribed nodes
     for key, item in pairs(waysigns.inscribed_positions) do
-        local dx = player_pos.x - item.pos.x
-        local dy = player_pos.y - item.pos.y
-        local dz = player_pos.z - item.pos.z
+        local target_pos = { x = item.pos.x, y = item.pos.y + 0.65, z = item.pos.z }
+        local dx = target_pos.x - eye_pos.x
+        local dy = target_pos.y - eye_pos.y
+        local dz = target_pos.z - eye_pos.z
         local dist_sq = dx * dx + dy * dy + dz * dz
         if dist_sq <= (sense_range * sense_range) then
-            -- If player is looking directly at this sign and full plaque HUD is visible, suppress glyph
-            local is_pointed = state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, item.pos)
-            if not is_pointed then
-                local target_pos = { x = item.pos.x, y = item.pos.y + 0.65, z = item.pos.z }
-                local los = true
-                if core.line_of_sight then
-                    los = core.line_of_sight(eye_pos, target_pos)
-                end
-                if los then
-                    table.insert(candidates, {
-                        key = key,
-                        pos = target_pos,
-                        dist = math.sqrt(dist_sq),
-                        is_entity = false,
-                    })
+            local dist = math.sqrt(dist_sq)
+            -- Check view direction: is target in front of player (in sight)?
+            local dot = (dist > 0.001) and ((look_dir.x * dx + look_dir.y * dy + look_dir.z * dz) / dist) or 1.0
+            if dot > 0 then
+                -- If player is looking directly at this sign and full plaque HUD is visible, suppress glyph
+                local is_pointed = state.is_visible and state.current_sign_pos and vector.equals(state.current_sign_pos, item.pos)
+                if not is_pointed then
+                    local los = true
+                    if core.line_of_sight then
+                        los = core.line_of_sight(eye_pos, target_pos)
+                    end
+                    if los then
+                        table.insert(candidates, {
+                            key = key,
+                            pos = target_pos,
+                            dist = dist,
+                            is_entity = false,
+                        })
+                    end
                 end
             end
         end
@@ -1702,23 +1715,27 @@ function waysigns.update_marker_waypoints(player, state)
                         local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
                         if not is_pointed then
                             local target_pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z }
-                            local dx = player_pos.x - obj_pos.x
-                            local dy = player_pos.y - obj_pos.y
-                            local dz = player_pos.z - obj_pos.z
+                            local dx = target_pos.x - eye_pos.x
+                            local dy = target_pos.y - eye_pos.y
+                            local dz = target_pos.z - eye_pos.z
                             local dist_sq = dx * dx + dy * dy + dz * dz
                             if dist_sq <= (sense_range * sense_range) then
-                                local los = true
-                                if core.line_of_sight then
-                                    los = core.line_of_sight(eye_pos, target_pos)
-                                end
-                                if los then
-                                    local ent_key = 'ent_' .. tostring(obj)
-                                    table.insert(candidates, {
-                                        key = ent_key,
-                                        pos = target_pos,
-                                        dist = math.sqrt(dist_sq),
-                                        is_entity = true,
-                                    })
+                                local dist = math.sqrt(dist_sq)
+                                local dot = (dist > 0.001) and ((look_dir.x * dx + look_dir.y * dy + look_dir.z * dz) / dist) or 1.0
+                                if dot > 0 then
+                                    local los = true
+                                    if core.line_of_sight then
+                                        los = core.line_of_sight(eye_pos, target_pos)
+                                    end
+                                    if los then
+                                        local ent_key = 'ent_' .. tostring(obj)
+                                        table.insert(candidates, {
+                                            key = ent_key,
+                                            pos = target_pos,
+                                            dist = dist,
+                                            is_entity = true,
+                                        })
+                                    end
                                 end
                             end
                         end
@@ -1728,7 +1745,7 @@ function waysigns.update_marker_waypoints(player, state)
         end
     end
 
-    -- 3. Sort by distance ascending and keep top max_waypoints
+    -- 3. Sort in-sight targets by distance ascending and keep top max_waypoints
     table.sort(candidates, function(a, b)
         return a.dist < b.dist
     end)
@@ -1738,21 +1755,36 @@ function waysigns.update_marker_waypoints(player, state)
 
     state.marker_waypoints = state.marker_waypoints or {}
 
+    local min_op = waysigns.settings.marker_sense_min_opacity or 75
+    local max_op = math.max(min_op, waysigns.settings.marker_sense_max_opacity or 255)
+
     for i = 1, count do
         local cand = candidates[i]
         active_keys[cand.key] = true
+
+        -- Distance-based opacity progression: closer = more transparent, farther = more opaque
+        local norm_dist = math.min(1.0, math.max(0.0, (cand.dist - 1.0) / math.max(1.0, sense_range - 1.0)))
+        local raw_opacity = math.floor(min_op + norm_dist * (max_op - min_op))
+        -- Quantize opacity into steps of 15 to prevent sending redundant network updates
+        local opacity = math.min(255, math.max(0, math.floor(raw_opacity / 15) * 15))
+        local marker_tex = string.format('waysigns_marker.png^[resize:24x24^[opacity:%d', opacity)
+
         local existing = state.marker_waypoints[cand.key]
         if existing then
             if not vector.equals(existing.pos, cand.pos) then
                 player:hud_change(existing.hud_id, 'world_pos', cand.pos)
                 existing.pos = cand.pos
             end
+            if existing.opacity ~= opacity then
+                player:hud_change(existing.hud_id, 'text', marker_tex)
+                existing.opacity = opacity
+            end
         else
             local hud_id = player:hud_add({
                 type = 'image_waypoint',
                 world_pos = cand.pos,
                 scale = { x = 1, y = 1 },
-                text = 'waysigns_marker.png^[resize:24x24',
+                text = marker_tex,
                 alignment = { x = 0, y = 0 },
                 offset = { x = 0, y = 0 },
                 z_index = -250,
@@ -1760,12 +1792,13 @@ function waysigns.update_marker_waypoints(player, state)
             state.marker_waypoints[cand.key] = {
                 hud_id = hud_id,
                 pos = cand.pos,
+                opacity = opacity,
                 is_entity = cand.is_entity,
             }
         end
     end
 
-    -- 4. Remove waypoints that are no longer active
+    -- 4. Remove waypoints that are no longer active (e.g. turned out of sight or exceeded cap)
     for k, wp in pairs(state.marker_waypoints) do
         if not active_keys[k] then
             if wp.hud_id then
@@ -1960,7 +1993,8 @@ function waysigns.update_player(player, dtime)
     -- 4. Marker Sense: Proximity waypoints when wielding waysigns:marker
     if waysigns.settings.marker_sense then
         state.marker_sense_timer = (state.marker_sense_timer or 0) + dtime
-        if state.marker_sense_timer >= 0.15 then
+        local interval = math.min(0.15, waysigns.settings.check_interval or 0.10)
+        if state.marker_sense_timer >= interval then
             state.marker_sense_timer = 0
             local wielded_item = player.get_wielded_item and player:get_wielded_item()
             local item_name = wielded_item and wielded_item:get_name()

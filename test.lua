@@ -4427,7 +4427,7 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     local wp_node = pstate.marker_waypoints['15,2,15']
     assert(wp_node ~= nil, 'Waypoint for nearby node must exist')
     assert(sense_player.hud_adds[wp_node.hud_id].type == 'image_waypoint', 'HUD type must be image_waypoint')
-    assert(sense_player.hud_adds[wp_node.hud_id].text == 'waysigns_marker.png^[resize:24x24', 'Must use 24x24 marker icon')
+    assert(sense_player.hud_adds[wp_node.hud_id].text:find('waysigns_marker.png%^%[resize:24x24%^%[opacity:'), 'Must use 24x24 marker icon with opacity modifier')
     assert(sense_player.hud_adds[wp_node.hud_id].z_index == -250, 'Must have z_index -250')
 
     -- Far-away node must NOT have a waypoint
@@ -4435,7 +4435,60 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
 
     -- Nearby entity must have a waypoint
     local ent_key = 'ent_' .. tostring(mock_ent)
-    assert(pstate.marker_waypoints[ent_key] ~= nil, 'Entity waypoint must exist')
+    local wp_ent = pstate.marker_waypoints[ent_key]
+    assert(wp_ent ~= nil, 'Entity waypoint must exist')
+
+    -- Distance-based opacity progression check:
+    -- Node at (15, 2, 15) is ~5.09m away from player eye; entity at (17, 2, 12) is ~2.96m away
+    local node_tex = sense_player.hud_adds[wp_node.hud_id].text
+    local ent_tex = sense_player.hud_adds[wp_ent.hud_id].text
+    local node_op = tonumber(node_tex:match('%^%[opacity:(%d+)'))
+    local ent_op = tonumber(ent_tex:match('%^%[opacity:(%d+)'))
+    assert(node_op ~= nil and ent_op ~= nil, 'Waypoints must have opacity modifier in texture string')
+    assert(node_op > ent_op, string.format('More distant waypoint (op=%d) must be more opaque than closer waypoint (op=%d)', node_op, ent_op))
+
+    -- View direction / FOV turnaround check:
+    -- Add an inscribed node behind player (player is at 15, 2, 10, looking +Z)
+    local p_behind = { x = 15, y = 2, z = 5 }
+    waysigns.set_node_inscription(p_behind, 'Hidden Stash', 'slate', 'cyan', 'miner')
+
+    -- Player looking forward (+Z): p2 is visible, p_behind is hidden
+    waysigns.update_player(sense_player, 0.2)
+    assert(pstate.marker_waypoints['15,2,15'] ~= nil, 'Target in front (+Z) must be visible')
+    assert(pstate.marker_waypoints['15,2,5'] == nil, 'Target behind player must be hidden (out of sight)')
+
+    -- Player turns around to look in -Z direction:
+    sense_player.look_dir = { x = 0, y = 0, z = -1 }
+    waysigns.update_player(sense_player, 0.2)
+    -- Now p_behind is in sight and appears; p2 (15, 2, 15) is out of sight and hidden!
+    assert(pstate.marker_waypoints['15,2,5'] ~= nil, 'Target now in sight (-Z) must appear')
+    assert(pstate.marker_waypoints['15,2,15'] == nil, 'Target now out of sight must be hidden')
+
+    -- Turn back to +Z
+    sense_player.look_dir = { x = 0, y = 0, z = 1 }
+    waysigns.update_player(sense_player, 0.2)
+    assert(pstate.marker_waypoints['15,2,15'] ~= nil, 'Target restored when turning back')
+    assert(pstate.marker_waypoints['15,2,5'] == nil, 'Target behind hidden again')
+    waysigns.on_dignode(p_behind)
+
+    -- Cap active proximity waypoints to nearest N targets (default 6)
+    local cap_test_positions = {}
+    for i = 1, 8 do
+        local p_cap = { x = 11 + i, y = 2, z = 13 }
+        waysigns.set_node_inscription(p_cap, 'Cap Node ' .. i, 'wood', 'white', 'tester')
+        table.insert(cap_test_positions, p_cap)
+    end
+    waysigns.update_player(sense_player, 0.2)
+    local active_count = 0
+    for _ in pairs(pstate.marker_waypoints) do
+        active_count = active_count + 1
+    end
+    assert(active_count <= waysigns.settings.marker_sense_max,
+        string.format('Active waypoints count (%d) must not exceed marker_sense_max (%d)', active_count, waysigns.settings.marker_sense_max))
+    for _, p_cap in ipairs(cap_test_positions) do
+        waysigns.on_dignode(p_cap)
+    end
+    waysigns.update_player(sense_player, 0.2)
 
     -- Case 4C: Direct Gaze Suppression (when player aims directly at the sign)
     pstate.is_visible = true

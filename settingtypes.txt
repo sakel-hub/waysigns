@@ -104,3 +104,9 @@ waysigns_marker_sense_range (Marker Detection Radius) float 10.0 4.0 25.0
 
 # Maximum simultaneous marker waypoint glyphs displayed at once around the player.
 waysigns_marker_sense_max (Max Simultaneous Marker Waypoints) int 6 1 15
+
+# Minimum opacity (0 to 255) for marker waypoint glyphs at close proximity (more transparent).
+waysigns_marker_sense_min_opacity (Marker Waypoint Min Opacity) int 75 0 255
+
+# Maximum opacity (0 to 255) for marker waypoint glyphs at maximum detection distance (more opaque).
+waysigns_marker_sense_max_opacity (Marker Waypoint Max Opacity) int 255 50 255

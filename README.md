@@ -99,6 +99,8 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_marker_sense` | `true` | Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes/entities when wielding the marker tool. |
 | `waysigns_marker_sense_range` | `10.0` | Maximum detection radius in blocks (meters) when holding the marker tool. |
 | `waysigns_marker_sense_max` | `6` | Maximum simultaneous marker waypoint glyphs displayed at once around the player. |
+| `waysigns_marker_sense_min_opacity` | `75` | Minimum opacity (0-255) for marker waypoint glyphs at close proximity (more transparent). |
+| `waysigns_marker_sense_max_opacity` | `255` | Maximum opacity (0-255) for marker waypoint glyphs at maximum distance (more opaque). |
 
 ---
 
@@ -108,8 +110,9 @@ WaySigns provides a handcrafted writing tool—the **Inscription Marker**—allo
 
 ### Scribe Sense (Marker-Wield Proximity Waypoints)
 When holding the **Inscription Marker** in your active hotbar slot, **Scribe Sense** awakens:
-- Small, unobtrusive 3D waypoint glyphs (`image_waypoint`) hover over all nearby inscribed nodes and entities within 10 meters.
-- Allows players and builders to instantly scan their surrounding base or town to see which chests, doors, nodes, or sentries have been inscribed.
+- Small, unobtrusive 3D waypoint glyphs (`image_waypoint`) hover over nearby inscribed nodes and entities within 10 meters.
+- **View-Direction & FOV Filtering**: Waypoints are prioritized based on where the player is looking. When the maximum simultaneous waypoint cap (default 6) is reached, turning your character reveals newly visible in-sight targets while cleanly hiding targets turning behind you.
+- **Distance-Based Opacity Progression**: Closer markers are rendered with higher transparency (semi-translucent and unobtrusive so they do not block chests or nodes), whereas distant markers are rendered more opaque (beacons easily spotted across rooms and fields). Opacity is quantized to ensure zero network packet waste.
 - **Direct Gaze Harmony**: When looking directly at an inscribed sign, its small marker waypoint automatically suppresses so the full plaque HUD takes center stage without visual clutter.
 - **Zero World Clutter**: When switching away from the marker to another tool, weapon, or empty hands, all waypoint glyphs instantly disappear, keeping the world 100% pristine during normal gameplay!
 - **Line-of-Sight Tested**: Waypoints only appear when you have clear line-of-sight to the inscribed target (no wall-hacking or clutter through solid terrain).
