@@ -16,35 +16,35 @@
     License along with this library; if not, see <https://www.gnu.org/licenses/>.
 --]]
 
-local S = core.get_translator and core.get_translator(core.get_current_modname()) or function(s, ...)
-    local args = {...}
-    return (s:gsub('@(%d+)', function(n) return tostring(args[tonumber(n)] or '') end))
+local S = core.get_translator(core.get_current_modname())
+
+---Count UTF-8 characters safely in Lua 5.1 / Luanti
+---@param str string|nil
+---@return integer length Character count
+local function get_char_count(str)
+    if not str or str == '' then return 0 end
+    -- Standard Lua 5.1 UTF-8 character count:
+    -- Match any byte that is not a UTF-8 continuation byte (0x80..0xBF)
+    local _, count = str:gsub('[^\128-\191]', '')
+    return count
 end
 
 local PLAQUE_OPTIONS = {
-    { key = 'default', label = 'Default (Node Texture / Neutral)' },
-    { key = 'wood', label = 'Wood Plaque' },
-    { key = 'steel', label = 'Steel Plaque' },
-    { key = 'slate', label = 'Dark Slate' },
-    { key = 'gold', label = 'Gold / Brass' },
-    { key = 'glass', label = 'Frosted Glass' },
-}
-
-local PLAQUE_TEXTURES = {
-    wood = 'waysigns_sign_wood.png',
-    steel = 'waysigns_sign_steel.png',
-    slate = 'waysigns_sign_slate.png',
-    gold = 'waysigns_sign_gold.png',
-    glass = 'waysigns_sign_glass.png',
+    { key = 'default', label = S('Default (Node Texture / Neutral)') },
+    { key = 'wood', label = S('Wood Plaque') },
+    { key = 'steel', label = S('Steel Plaque') },
+    { key = 'slate', label = S('Dark Slate') },
+    { key = 'gold', label = S('Gold / Brass') },
+    { key = 'glass', label = S('Frosted Glass') },
 }
 
 local COLOR_OPTIONS = {
-    { key = 'white', label = 'Classic White' },
-    { key = 'gold', label = 'Warm Gold' },
-    { key = 'cyan', label = 'Cyan' },
-    { key = 'green', label = 'Lime Green' },
-    { key = 'red', label = 'Crimson Red' },
-    { key = 'dark', label = 'Dark Walnut' },
+    { key = 'white', label = S('Classic White') },
+    { key = 'gold', label = S('Warm Gold') },
+    { key = 'cyan', label = S('Cyan') },
+    { key = 'green', label = S('Lime Green') },
+    { key = 'red', label = S('Crimson Red') },
+    { key = 'dark', label = S('Dark Walnut') },
 }
 
 local COLOR_HEXES = {
@@ -62,9 +62,13 @@ local COLOR_HEXES = {
 ---@return string texture
 local function get_plaque_texture(key, default_tile)
     if key == 'default' or not key then
-        return (default_tile and default_tile ~= '') and default_tile or 'waysigns_sign_slate.png'
+        local tile = (default_tile and default_tile ~= '') and default_tile or 'waysigns_sign_slate.png'
+        if waysigns.clean_tile_name then
+            tile = waysigns.clean_tile_name(tile, false)
+        end
+        return tile
     end
-    return PLAQUE_TEXTURES[key] or 'waysigns_sign_wood.png'
+    return (waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[key]) or 'waysigns_sign_wood.png'
 end
 
 ---Get hex color code for a given color key
@@ -74,15 +78,12 @@ local function get_color_hex(key)
     return COLOR_HEXES[key] or '#FFFFFF'
 end
 
----Apply color escape sequence to string using core.colorize or fallback
+---Apply color escape sequence to string using core.colorize
 ---@param hex string Hex color string
 ---@param text string Target text
 ---@return string colored_text
 local function colorize_text(hex, text)
-    if core.colorize then
-        return core.colorize(hex, text)
-    end
-    return '\x1b(c@' .. hex .. ')' .. tostring(text or '') .. '\x1b(c@#ffffff)'
+    return core.colorize(hex, text)
 end
 
 -- Per-player active target cache for formspec session tracking
@@ -150,10 +151,18 @@ end
 ---@param target table Target tracking table (pos, title, text, plaque, color, default_tile)
 ---@return string formspec
 local function build_inscription_formspec(target)
+    if (not target.default_tile or target.default_tile == '') and target.type == 'node' and target.pos then
+        local node = core.get_node_or_nil(target.pos)
+        local node_def = node and (core.registered_nodes[node.name] or {})
+        local is_metal = waysigns.is_metal_node(node and node.name, node_def)
+        target.default_tile = waysigns.get_node_front_tile and waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
+            or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD or 'waysigns_sign_slate.png')
+    end
+
     local max_chars = waysigns.settings.marker_max_chars or 250
     local header_title = target.title or S('WaySigns Inscription')
     local current_text = target.text or ''
-    local current_len = #current_text
+    local current_len = get_char_count(current_text)
 
     local counter_color = '#8e95a5'
     local counter_text = S('@1 / @2 chars', current_len, max_chars)
@@ -276,7 +285,7 @@ local function build_inscription_formspec(target)
     local color_hex = get_color_hex(target.color)
     local preview_raw = target.text
     if not preview_raw or preview_raw:gsub('%s+', '') == '' then
-        preview_raw = 'WaySigns Inscription'
+        preview_raw = S('WaySigns Inscription')
     else
         preview_raw = preview_raw:gsub('[\r\n].*$', '')
         if #preview_raw > 28 then
@@ -303,6 +312,38 @@ local function build_inscription_formspec(target)
     return table.concat(parts)
 end
 
+---Consume marker tool durability when inscribing a node or entity
+---@param player ObjectRef Player reference
+---@param pos Vector|nil Event position for break sound
+---@return boolean was_consumed Whether durability was consumed
+function waysigns.consume_marker_durability(player, pos)
+    if not player or not player.get_wielded_item then return false end
+    local wielded = player:get_wielded_item()
+    if not wielded or wielded:get_name() ~= 'waysigns:marker' then
+        return false
+    end
+    local max_uses = waysigns.settings.marker_uses or 100
+    if max_uses <= 0 then
+        return false
+    end
+    if wielded.add_wear_by_uses then
+        wielded:add_wear_by_uses(max_uses)
+    else
+        wielded:add_wear(math.floor(65535 / max_uses))
+    end
+    if wielded:get_count() == 0 then
+        if pos then
+            core.sound_play('default_tool_breaks', { pos = pos, gain = 0.8 }, true)
+        end
+        local player_name = player:get_player_name()
+        if player_name and player_name ~= '' then
+            core.chat_send_player(player_name, S('[WaySigns] Your marker wore out!'))
+        end
+    end
+    player:set_wielded_item(wielded)
+    return true
+end
+
 ---Show inscription editor formspec to player
 ---@param player ObjectRef Target player
 ---@param target table Target context table
@@ -317,22 +358,26 @@ end
 ---@param pos Vector Integer coordinate of node
 function waysigns.show_node_inscription_formspec(player, pos)
     local player_name = player:get_player_name()
-    local node = core.get_node(pos)
-    local node_def = core.registered_nodes[node.name] or {}
-    local desc = node_def.description or node.name
+    local node = core.get_node_or_nil(pos)
+    if not node or node.name == 'ignore' then
+        return
+    end
+    if waysigns.is_sign_node(node) then
+        core.chat_send_player(player_name, S('[WaySigns] Signs already have editable text.'))
+        return
+    end
+
+    local node_def = (node and core.registered_nodes[node.name]) or {}
+    local desc = node_def.description or (node and node.name) or 'Node'
 
     -- Strip extra escape sequences or lines from node description
     desc = waysigns.strip_all_escapes(desc):gsub('[\r\n].*$', '')
 
     local current = waysigns.get_node_inscription(pos) or {}
-    local default_tile = 'waysigns_sign_slate.png'
-    if node_def.tiles then
-        local t = node_def.tiles[1]
-        if type(t) == 'string' then
-            default_tile = t
-        elseif type(t) == 'table' and t.name then
-            default_tile = t.name
-        end
+    local is_metal = node and waysigns.is_metal_node(node.name, node_def)
+    local default_tile = waysigns.get_node_front_tile and waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
+    if not default_tile or default_tile == '' then
+        default_tile = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD or 'waysigns_sign_slate.png'
     end
 
     active_targets[player_name] = {
@@ -353,7 +398,7 @@ end
 ---@param object ObjectRef Target entity object
 function waysigns.show_entity_inscription_formspec(player, object)
     local player_name = player:get_player_name()
-    local lua_ent = object.get_luaentity and object:get_luaentity()
+    local lua_ent = object:get_luaentity()
     local name = (lua_ent and lua_ent.name) or 'Entity'
 
     local current = waysigns.get_entity_inscription(object) or {}
@@ -377,7 +422,7 @@ end
 ---@param pointed_thing PointedThing Target pointed node or object
 ---@return ItemStack itemstack Returned itemstack with wear applied
 function waysigns.on_use_marker(itemstack, user, pointed_thing)
-    if not user or not user.is_player or not user:is_player() then
+    if not user or not user:is_player() then
         return itemstack
     end
 
@@ -393,9 +438,19 @@ function waysigns.on_use_marker(itemstack, user, pointed_thing)
             return itemstack
         end
 
-        if core.is_protected(pos, player_name) and not core.check_player_privs(user, 'protection_bypass') then
+        if not core.check_player_privs(user, 'protection_bypass') and waysigns.is_protected(pos, player_name) then
             core.record_protection_violation(pos, player_name)
             core.chat_send_player(player_name, S('[WaySigns] This area is protected.'))
+            return itemstack
+        end
+
+        local node = core.get_node_or_nil(pos)
+        if not node or node.name == 'ignore' then
+            return itemstack
+        end
+
+        if waysigns.is_sign_node(node) then
+            core.chat_send_player(player_name, S('[WaySigns] Signs already have editable text.'))
             return itemstack
         end
 
@@ -407,12 +462,12 @@ function waysigns.on_use_marker(itemstack, user, pointed_thing)
         end
 
         local obj = pointed_thing.ref
-        if not obj or not obj.is_valid or not obj:is_valid() or (obj.is_player and obj:is_player()) then
+        if not obj or not obj:is_valid() or obj:is_player() then
             return itemstack
         end
 
         local pos = obj:get_pos()
-        if pos and core.is_protected(pos, player_name) and not core.check_player_privs(user, 'protection_bypass') then
+        if pos and not core.check_player_privs(user, 'protection_bypass') and waysigns.is_protected(pos, player_name) then
             core.record_protection_violation(pos, player_name)
             core.chat_send_player(player_name, S('[WaySigns] This area is protected.'))
             return itemstack
@@ -425,28 +480,78 @@ function waysigns.on_use_marker(itemstack, user, pointed_thing)
     return itemstack
 end
 
+---Handle right-click (placement/interaction) with waysigns:marker tool
+---Delegates to node/entity on_rightclick (e.g. chest, door) if present and player is not sneaking,
+---otherwise falls back to waysigns.on_use_marker to open the inscription editor.
+---@param itemstack ItemStack Wielded marker itemstack
+---@param user ObjectRef Player using the marker
+---@param pointed_thing PointedThing Target pointed node or object
+---@return ItemStack itemstack Returned itemstack
+function waysigns.on_place_marker(itemstack, user, pointed_thing)
+    if not user or not user:is_player() then
+        return itemstack
+    end
+
+    if not pointed_thing then
+        return itemstack
+    end
+
+    local ctrl = user:get_player_control()
+    local is_sneaking = ctrl and ctrl.sneak or false
+
+    if pointed_thing.type == 'node' then
+        local pos = pointed_thing.under
+        if pos and not is_sneaking then
+            local node = core.get_node_or_nil(pos)
+            if node and node.name ~= 'ignore' and node.name ~= 'air' then
+                local node_def = core.registered_nodes[node.name]
+                if node_def and node_def.on_rightclick then
+                    return node_def.on_rightclick(pos, node, user, itemstack, pointed_thing) or itemstack
+                end
+
+                -- If the node has its own metadata formspec (e.g. furnace, bookshelf, machine),
+                -- return nil so the engine handles right-click interaction and opens its formspec.
+                local meta = core.get_meta(pos)
+                if meta and meta:get_string('formspec') ~= '' then
+                    return nil
+                end
+            end
+        end
+    elseif pointed_thing.type == 'object' then
+        if not is_sneaking then
+            local obj = pointed_thing.ref
+            local luaentity = obj and obj:get_luaentity()
+            if luaentity and luaentity.on_rightclick then
+                return luaentity:on_rightclick(user, itemstack) or itemstack
+            end
+        end
+    end
+
+    return waysigns.on_use_marker(itemstack, user, pointed_thing)
+end
+
 ---Register tool definition for waysigns:marker
 core.register_tool('waysigns:marker', {
-    description = S('WaySigns Inscription Marker'),
-    short_description = S('WaySigns Inscription Marker'),
+    short_description = S('Inscription Marker'),
+    description = S('Inscription Marker\nWrite in-world sign messages onto solid blocks and entities'),
     inventory_image = 'waysigns_marker.png',
     wield_image = 'waysigns_marker.png^[transformR270',
     stack_max = 1,
     groups = { tool = 1 },
     on_place = function(itemstack, user, pointed_thing)
-        return waysigns.on_use_marker(itemstack, user, pointed_thing)
+        return waysigns.on_place_marker(itemstack, user, pointed_thing)
     end,
     on_use = function(itemstack, user, pointed_thing)
         return waysigns.on_use_marker(itemstack, user, pointed_thing)
     end,
     on_secondary_use = function(itemstack, user, pointed_thing)
-        return waysigns.on_use_marker(itemstack, user, pointed_thing)
+        return waysigns.on_place_marker(itemstack, user, pointed_thing)
     end,
 })
 
 ---Receive and process submitted fields from inscription editor formspec
 core.register_on_player_receive_fields(function(player, formname, fields)
-    if formname ~= 'waysigns:inscribe' or not player or not player.is_player or not player:is_player() then
+    if formname ~= 'waysigns:inscribe' or not player or not player:is_player() then
         return
     end
 
@@ -528,7 +633,22 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             return
         end
 
-        if core.is_protected(pos, player_name) and not core.check_player_privs(player, 'protection_bypass') then
+        local node = core.get_node_or_nil(pos)
+        if node and node.name == 'ignore' then
+            core.chat_send_player(player_name, S('[WaySigns] Target node is not loaded.'))
+            active_targets[player_name] = nil
+            core.close_formspec(player_name, 'waysigns:inscribe')
+            return
+        end
+
+        if node and waysigns.is_sign_node(node) then
+            core.chat_send_player(player_name, S('[WaySigns] Signs already have editable text.'))
+            active_targets[player_name] = nil
+            core.close_formspec(player_name, 'waysigns:inscribe')
+            return
+        end
+
+        if not core.check_player_privs(player, 'protection_bypass') and waysigns.is_protected(pos, player_name) then
             core.record_protection_violation(pos, player_name)
             core.chat_send_player(player_name, S('[WaySigns] This area is protected.'))
             active_targets[player_name] = nil
@@ -566,40 +686,22 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             target.color = color_key
 
             -- Validation (Option 2A): reject and re-open editor with alert if exceeding max characters
-            if #clean_text > max_chars then
+            local text_len = get_char_count(clean_text)
+            if text_len > max_chars then
                 target.text = raw_text
                 waysigns.show_inscription_formspec(player, target)
                 core.chat_send_player(player_name,
                     S('[WaySigns] Inscription exceeds maximum length of @1 characters (@2 chars). Please shorten it.',
-                      max_chars, #clean_text))
+                      max_chars, text_len))
                 return
             end
 
             waysigns.set_node_inscription(pos, clean_text, plaque_key, color_key, player_name)
 
-            if core.sound_play then
-                core.sound_play('default_place_node', { pos = pos, gain = 0.5 }, true)
-            end
+            core.sound_play('default_place_node', { pos = pos, gain = 0.5 }, true)
 
             -- Consume tool durability
-            local wielded = player:get_wielded_item()
-            if wielded and wielded:get_name() == 'waysigns:marker' then
-                local max_uses = waysigns.settings.marker_uses or 100
-                if max_uses > 0 then
-                    if wielded.add_wear_by_uses then
-                        wielded:add_wear_by_uses(max_uses)
-                    else
-                        wielded:add_wear(math.floor(65535 / max_uses))
-                    end
-                    if wielded:get_count() == 0 then
-                        if core.sound_play then
-                            core.sound_play('default_tool_breaks', { pos = pos, gain = 0.8 }, true)
-                        end
-                        core.chat_send_player(player_name, S('[WaySigns] Your marker wore out!'))
-                    end
-                    player:set_wielded_item(wielded)
-                end
-            end
+            waysigns.consume_marker_durability(player, pos)
 
             core.chat_send_player(player_name, S('[WaySigns] Inscription saved.'))
             active_targets[player_name] = nil
@@ -616,7 +718,7 @@ core.register_on_player_receive_fields(function(player, formname, fields)
         end
 
         local pos = obj:get_pos()
-        if pos and core.is_protected(pos, player_name) and not core.check_player_privs(player, 'protection_bypass') then
+        if pos and not core.check_player_privs(player, 'protection_bypass') and waysigns.is_protected(pos, player_name) then
             core.record_protection_violation(pos, player_name)
             core.chat_send_player(player_name, S('[WaySigns] This area is protected.'))
             active_targets[player_name] = nil
@@ -652,40 +754,24 @@ core.register_on_player_receive_fields(function(player, formname, fields)
             target.color = color_key
 
             -- Validation (Option 2A): reject and re-open editor with alert if exceeding max characters
-            if #clean_text > max_chars then
+            local text_len = get_char_count(clean_text)
+            if text_len > max_chars then
                 target.text = raw_text
                 waysigns.show_inscription_formspec(player, target)
                 core.chat_send_player(player_name,
                     S('[WaySigns] Inscription exceeds maximum length of @1 characters (@2 chars). Please shorten it.',
-                      max_chars, #clean_text))
+                      max_chars, text_len))
                 return
             end
 
             waysigns.set_entity_inscription(obj, clean_text, plaque_key, color_key, player_name)
 
-            if pos and core.sound_play then
+            if pos then
                 core.sound_play('default_place_node', { pos = pos, gain = 0.5 }, true)
             end
 
             -- Consume tool durability
-            local wielded = player:get_wielded_item()
-            if wielded and wielded:get_name() == 'waysigns:marker' then
-                local max_uses = waysigns.settings.marker_uses or 100
-                if max_uses > 0 then
-                    if wielded.add_wear_by_uses then
-                        wielded:add_wear_by_uses(max_uses)
-                    else
-                        wielded:add_wear(math.floor(65535 / max_uses))
-                    end
-                    if wielded:get_count() == 0 then
-                        if pos and core.sound_play then
-                            core.sound_play('default_tool_breaks', { pos = pos, gain = 0.8 }, true)
-                        end
-                        core.chat_send_player(player_name, S('[WaySigns] Your marker wore out!'))
-                    end
-                    player:set_wielded_item(wielded)
-                end
-            end
+            waysigns.consume_marker_durability(player, pos)
 
             core.chat_send_player(player_name, S('[WaySigns] Inscription saved.'))
             active_targets[player_name] = nil
@@ -697,7 +783,7 @@ end)
 
 -- Clean up active targets on player leave
 core.register_on_leaveplayer(function(player)
-    if player and player.get_player_name then
+    if player then
         active_targets[player:get_player_name()] = nil
     end
 end)

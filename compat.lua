@@ -386,9 +386,7 @@ if core.get_modpath('ucsigns') then
             local meta = core.get_meta(pos)
             local text = waysigns.extract_text(meta)
             if not text then return nil end
-            local is_metal = not not (node.name:find('steel')
-                or node.name:find('metal')
-                or node.name:find('iron'))
+            local is_metal = waysigns.is_metal_node(node.name)
             local wood_base = waysigns.FALLBACK_WOOD
             local tile = is_metal and waysigns.FALLBACK_STEEL or wood_base
             local nname = node.name:lower()
@@ -752,246 +750,47 @@ local function clean_tile_name(raw_tile, is_metal, nodename)
 end
 waysigns.clean_tile_name = clean_tile_name
 
----Check if a node at position is a recognized sign and return its extracted data
----Scans node cache, custom resolvers, pre-registered signs, and generic sign detection fallbacks.
----@param pos Vector 3D integer coordinate of the node
----@param node table Node table containing node name and orientation param2
----@return table|nil sign_data Extracted sign definition table or nil if not a sign
-function waysigns.get_sign_data(pos, node)
-    local pos_key = core.hash_node_position(pos)
-    local cached = waysigns.node_cache[pos_key]
-    local meta = core.get_meta(pos)
-    local text = waysigns.extract_text(meta)
-    if not text then
-        return nil
+---Check if a node is a dedicated sign with native editable text
+---@param node table|nil Node table containing node name and param2
+---@return boolean is_sign True if node is a recognized physical sign
+function waysigns.is_sign_node(node)
+    if not node or not node.name then
+        return false
     end
-
-    -- Check dynamic metadata from signs_rx, waysigns marker, or other custom systems
-    local rx_scale = meta:get_string('scale')
-    local rx_color = meta:get_string('color')
-    local waysigns_plaque = meta:get_string('waysigns_plaque')
-    local waysigns_color = meta:get_string('waysigns_color')
-
-    if cached and cached.nodename == node.name and cached.raw_text == text
-        and cached.rx_scale == rx_scale and cached.rx_color == rx_color
-        and cached.waysigns_plaque == waysigns_plaque and cached.waysigns_color == waysigns_color then
-        return cached
+    if waysigns.registered_signs and waysigns.registered_signs[node.name] then
+        return true
     end
-
-    -- 1. Custom registered resolvers
-    for _, resolver in ipairs(waysigns.custom_resolvers) do
-        local custom_data = resolver(pos, node)
-        if custom_data and custom_data.text and custom_data.text ~= '' then
-            custom_data.nodename = node.name
-            custom_data.raw_text = custom_data.text
-            custom_data.aspect_ratio = custom_data.aspect_ratio or waysigns.get_aspect_ratio(node.name, nil, nil)
-            custom_data.wrapped = waysigns.wrap_text(custom_data.text, nil, nil, custom_data.text_color)
-            waysigns.set_cached_node(pos_key, custom_data)
-            return custom_data
-        end
+    if (core.get_item_group(node.name, 'sign') > 0)
+        or (core.get_item_group(node.name, 'board') > 0)
+        or (core.get_item_group(node.name, 'ucsign') > 0) then
+        return true
     end
-
     local node_def = core.registered_nodes[node.name]
-    if not node_def then
-        return nil
-    end
-
-    -- 2. Pre-registered signs
-    local reg_def = waysigns.registered_signs[node.name]
-    local is_metal = (reg_def and reg_def.is_metal)
-        or not not (node.name:find('steel')
-            or node.name:find('iron')
-            or node.name:find('metal')
-            or node.name:find('stone'))
-    local is_glass = (reg_def and reg_def.is_glass) or false
-
-    -- Determine base tile from node definition or registration
-    local is_mesh_sign = (node_def.drawtype == 'mesh')
-        or not not node.name:find('^ucsigns:')
-        or (core.get_item_group(node.name, 'ucsign') > 0)
-        or not not node_def.mesh
-
-    local base_tile = nil
-    if is_mesh_sign then
-        local fallback_wood = waysigns.FALLBACK_WOOD
-        if is_metal then
-            base_tile = waysigns.FALLBACK_STEEL
-        else
-            local nname = node.name:lower()
-            if nname:find('acacia') then
-                base_tile = fallback_wood .. '^[colorize:#a03818:50'
-            elseif nname:find('aspen') or nname:find('birch') then
-                base_tile = fallback_wood .. '^[colorize:#e5d5b0:40'
-            elseif nname:find('jungle') then
-                base_tile = fallback_wood .. '^[colorize:#4e2210:60'
-            elseif nname:find('pine') or nname:find('spruce') or nname:find('dark') then
-                base_tile = fallback_wood .. '^[colorize:#22150a:70'
-            else
-                base_tile = fallback_wood
-            end
+    if node_def then
+        if node_def.drawtype == 'signlike' then
+            return true
         end
-    elseif node_def._itemframe_texture and node_def._itemframe_texture ~= '' then
-        base_tile = clean_tile_name(node_def._itemframe_texture, is_metal, node.name)
-    elseif node_def._sign_texture and node_def._sign_texture ~= '' then
-        base_tile = clean_tile_name(node_def._sign_texture, is_metal, node.name)
-    elseif (node_def.tiles and (type(node_def.tiles) == 'table' or type(node_def.tiles) == 'string'))
-        or (node_def.tile_images and (type(node_def.tile_images) == 'table' or type(node_def.tile_images) == 'string')) then
-        local raw_tiles = node_def.tiles or node_def.tile_images
-        local tile_candidates = {}
-        if type(raw_tiles) == 'table' then
-            -- Face 6 is Luanti standard front face for facedir/nodebox
-            if #raw_tiles >= 6 then
-                table.insert(tile_candidates, raw_tiles[6])
-            end
-            for i, t in ipairs(raw_tiles) do
-                if i ~= 6 then
-                    table.insert(tile_candidates, t)
-                end
-            end
-        elseif type(raw_tiles) == 'string' and raw_tiles ~= '' then
-            table.insert(tile_candidates, raw_tiles)
-        end
-
-        local best_tile = nil
-        local fallback_tile = nil
-        local fallback = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD
-        for _, t in ipairs(tile_candidates) do
-            local cleaned = clean_tile_name(t, is_metal, node.name)
-            if cleaned and cleaned ~= fallback then
-                local lower = cleaned:lower()
-                if lower:find('sign') or lower:find('board') or lower:find('blade') or lower:find('stele')
-                    or lower:find('poster') or lower:find('label') or lower:find('front') then
-                    best_tile = cleaned
-                    break
-                elseif not best_tile then
-                    best_tile = cleaned
-                end
-            elseif not fallback_tile and cleaned then
-                fallback_tile = cleaned
-            end
-        end
-        base_tile = best_tile or fallback_tile or clean_tile_name(tile_candidates[1], is_metal, node.name)
-    elseif node_def.inventory_image and node_def.inventory_image ~= '' then
-        base_tile = clean_tile_name(node_def.inventory_image, is_metal, node.name)
-    end
-
-    local text_color
-    local tile
-    local aspect_ratio
-
-    if reg_def then
-        is_metal = reg_def.is_metal or false
-        text_color = reg_def.text_color or (is_metal and 0xEEEEEE or 0xFFFFFF)
-        local raw_tile = reg_def.tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
-        tile = clean_tile_name(raw_tile, is_metal, node.name)
-        aspect_ratio = reg_def.aspect_ratio or waysigns.get_aspect_ratio(node.name, node_def, reg_def)
-    else
-        -- 3. Generic sign detection or WaySigns marker inscription
-        local has_inscription = (meta:get_string('waysigns_text') ~= '')
-
-        local is_sign = has_inscription
-            or (core.get_item_group(node.name, 'sign') > 0)
-            or (core.get_item_group(node.name, 'board') > 0)
-            or (node_def.drawtype == 'signlike')
-            or not not (node.name:find('sign')
-                or node.name:find('notice')
-                or node.name:find('board')
-                or node.name:find('stele')
-                or node.name:find('marker'))
-
-        if not is_sign then
-            return nil
-        end
-
-        local chosen_tile = nil
-        if has_inscription and waysigns_plaque ~= '' and waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[waysigns_plaque] then
-            chosen_tile = waysigns.PLAQUE_STYLES[waysigns_plaque]
-            is_metal = (waysigns_plaque == 'steel' or waysigns_plaque == 'slate' or waysigns_plaque == 'gold')
-            is_glass = (waysigns_plaque == 'glass')
-        end
-
-        if has_inscription and waysigns_color ~= '' and waysigns.INSCRIPTION_COLORS and waysigns.INSCRIPTION_COLORS[waysigns_color] then
-            text_color = waysigns.INSCRIPTION_COLORS[waysigns_color]
-        else
-            text_color = is_metal and 0xEEEEEE or 0xFFFFFF
-        end
-
-        local raw_tile = chosen_tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
-        tile = clean_tile_name(raw_tile, is_metal, node.name)
-        aspect_ratio = (has_inscription and 1.40) or waysigns.get_aspect_ratio(node.name, node_def, nil)
-    end
-
-    -- Hiking directional arrow detection
-    if node.name:find('hiking:arrow') or node.name:find('direction') then
-        aspect_ratio = 2.2
-    end
-
-    -- Support signs_rx dynamic scale metadata
-    if rx_scale ~= '' then
-        local scale_ar = {
-            wide = 2.1,
-            tall = 1.0,
-            large = 1.45,
-            small = 1.45,
-        }
-        if scale_ar[rx_scale] then
-            aspect_ratio = scale_ar[rx_scale]
+        if (node_def._sign_texture and node_def._sign_texture ~= '')
+            or (node_def._itemframe_texture and node_def._itemframe_texture ~= '') then
+            return true
         end
     end
-
-    -- Support signs_rx dynamic color metadata
-    if rx_color ~= '' then
-        local rx_tints = {
-            teal = '#005533:140',
-            purple = '#330055:140',
-            olive = '#335500:140',
-            indigo = '#003355:140',
-            maroon = '#550033:140',
-            red = '#550000:140',
-            green = '#005500:140',
-            blue = '#000055:140',
-            brown = '#442200:140',
-            black = '#000000:160',
-            gray = '#333333:120',
-        }
-        if rx_tints[rx_color] then
-            tile = tile .. '^[colorize:' .. rx_tints[rx_color]
-        end
+    local nname = node.name:lower()
+    if nname:find('signal') or nname:find('design') then
+        return false
     end
-
-    local is_light_bg
-    if reg_def and reg_def.is_light_bg ~= nil then
-        is_light_bg = reg_def.is_light_bg
-    else
-        is_light_bg = waysigns.is_light_background(tile, node.name)
+    if nname:find('sign') or nname:find('notice') or nname:find('board') or nname:find('stele') then
+        return true
     end
-
-    local data = {
-        nodename = node.name,
-        raw_text = text,
-        text = text,
-        tile = tile,
-        is_metal = is_metal,
-        is_glass = is_glass,
-        is_light_bg = is_light_bg,
-        text_color = text_color,
-        aspect_ratio = aspect_ratio,
-        rx_scale = rx_scale,
-        rx_color = rx_color,
-        waysigns_plaque = waysigns_plaque,
-        waysigns_color = waysigns_color,
-        wrapped = waysigns.wrap_text(text, nil, nil, text_color)
-    }
-
-    waysigns.set_cached_node(pos_key, data)
-    return data
+    return false
 end
 
----Extract the best front-face texture for an infotext node (e.g. chest front, furnace front).
+---Extract the best front-face texture for a node definition (e.g. chest front, furnace front).
 ---Detects mesh nodes and uses a fallback texture instead of distorted UV mesh maps.
 ---Prioritizes 'front'/'face' keywords and uses Luanti standard face 6 (-Z) for 6-tile nodeboxes.
+---Detects animated textures and crops to the 1st frame.
 ---@param node_def table|nil Node definition table from core.registered_nodes
----@param nodename string Technical node name
+---@param nodename string|nil Technical node name
 ---@param is_metal boolean Whether node is metal/stone
 ---@return string tile Clean front tile texture name or fallback
 local function get_node_front_tile(node_def, nodename, is_metal)
@@ -999,6 +798,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
     if not node_def then
         return fallback
     end
+    nodename = nodename or ''
 
     -- 1. Detect mesh nodes: mesh UV maps cannot be mapped cleanly to 2D boards, so use fallback
     local is_mesh = (node_def.drawtype == 'mesh')
@@ -1040,10 +840,11 @@ local function get_node_front_tile(node_def, nodename, is_metal)
             if type(ot) == 'table' and ot.color and ot.color ~= 'white' and ot.color ~= '' then
                 ot_str = ot_str .. '^[multiply:' .. ot.color
             end
-            if base_str ~= '' then
-                return base_str .. '^' .. ot_str
+            local comb_name = (base_str ~= '' and (base_str .. '^' .. ot_str)) or ot_str
+            if type(t) == 'table' and t.animation then
+                return { name = comb_name, animation = t.animation }
             end
-            return ot_str
+            return comb_name
         end
         return t
     end
@@ -1116,6 +917,307 @@ local function get_node_front_tile(node_def, nodename, is_metal)
 
     return fallback
 end
+waysigns.get_node_front_tile = get_node_front_tile
+
+---Check if a node at position is a recognized sign and return its extracted data
+---Scans node cache, custom resolvers, pre-registered signs, and generic sign detection fallbacks.
+---@param pos Vector 3D integer coordinate of the node
+---@param node table Node table containing node name and orientation param2
+---@param player ObjectRef|nil Pointing player object
+---@return table|nil sign_data Extracted sign definition table or nil if not a sign
+function waysigns.get_sign_data(pos, node, player)
+    local pos_key = core.hash_node_position(pos)
+    local player_name = player and player:get_player_name() or ''
+    local cached_node = waysigns.node_cache[pos_key]
+    local cached = (cached_node and cached_node.by_player and cached_node.by_player[player_name])
+        or (cached_node and not cached_node.by_player and cached_node)
+
+    local meta = core.get_meta(pos)
+    local waysigns_text = meta:get_string('waysigns_text')
+    local has_inscription = (waysigns_text ~= '' and waysigns.is_valid_sign_text(waysigns_text))
+
+    local text
+    local clean_info = nil
+
+    if has_inscription then
+        if not waysigns.get_inscribed_pos(pos) then
+            waysigns.register_inscribed_pos(pos, {
+                author = meta:get_string('waysigns_author'),
+                plaque = meta:get_string('waysigns_plaque'),
+                color = meta:get_string('waysigns_color'),
+                text = waysigns_text,
+            }, true)
+        end
+
+        local raw_infotext = meta:get_string('infotext')
+        if raw_infotext and raw_infotext ~= '' and raw_infotext:find('%S') then
+            local cleaned = waysigns.strip_all_escapes and waysigns.strip_all_escapes(raw_infotext) or raw_infotext
+            if cleaned and cleaned ~= '' and cleaned:find('%S') then
+                local unwrapped = cleaned:match('^"(.*)"$')
+                local cand = (unwrapped and unwrapped ~= '') and unwrapped or cleaned
+                if waysigns.is_valid_sign_text(cand) then
+                    clean_info = cand
+                end
+            end
+        end
+
+        if clean_info and clean_info ~= '' and clean_info ~= waysigns_text
+            and clean_info:lower() ~= waysigns_text:lower()
+            and not waysigns_text:find(clean_info, 1, true)
+            and not clean_info:find(waysigns_text, 1, true) then
+            text = waysigns_text .. '\n' .. clean_info
+        else
+            text = waysigns_text
+        end
+    else
+        text = waysigns.extract_text(meta)
+        if not text then
+            return nil
+        end
+    end
+
+    -- Check dynamic metadata from signs_rx, waysigns marker, or other custom systems
+    local rx_scale = meta:get_string('scale')
+    local rx_color = meta:get_string('color')
+    local waysigns_plaque = meta:get_string('waysigns_plaque')
+    local waysigns_color = meta:get_string('waysigns_color')
+
+    -- 1. Custom registered resolvers
+    for _, resolver in ipairs(waysigns.custom_resolvers) do
+        local custom_data = resolver(pos, node)
+        if custom_data and custom_data.text and custom_data.text ~= '' then
+            custom_data.nodename = node.name
+            custom_data.raw_text = custom_data.text
+            custom_data.aspect_ratio = custom_data.aspect_ratio or waysigns.get_aspect_ratio(node.name, nil, nil)
+            custom_data.wrapped = waysigns.wrap_text(custom_data.text, nil, nil, custom_data.text_color)
+            waysigns.set_cached_node(pos_key, custom_data)
+            return custom_data
+        end
+    end
+
+    local node_def = core.registered_nodes[node.name]
+    if not node_def then
+        return nil
+    end
+
+    -- 2. Pre-registered signs
+    local reg_def = waysigns.registered_signs[node.name]
+    local is_metal = (reg_def and reg_def.is_metal)
+        or waysigns.is_metal_node(node.name, node_def)
+    local is_glass = (reg_def and reg_def.is_glass) or false
+
+    local is_dedicated_sign = waysigns.is_sign_node(node)
+    local is_sign = has_inscription or is_dedicated_sign or (reg_def ~= nil)
+
+    if not is_sign then
+        return nil
+    end
+
+    -- Container inventory quickview extraction
+    local qv
+    if waysigns.settings.enable_inventory_quickview then
+        qv = waysigns.extract_node_inventory(pos, node, meta, player)
+    end
+    local has_visual_quickview = qv and qv.items and #qv.items > 0
+    if not has_visual_quickview and qv and qv.summary and qv.summary ~= '' then
+        text = text .. '\n' .. qv.summary
+    end
+    local inv_hash = qv and qv.inv_hash or ''
+
+    local now = core.get_us_time() / 1000000
+    if cached and cached.nodename == node.name and cached.raw_text == text
+        and cached.rx_scale == rx_scale and cached.rx_color == rx_color
+        and cached.waysigns_plaque == waysigns_plaque and cached.waysigns_color == waysigns_color
+        and cached.inv_hash == inv_hash and cached.timestamp and (now - cached.timestamp < 0.5) then
+        return cached
+    end
+
+    -- Determine base tile from node definition or registration
+    local is_mesh_sign = (node_def.drawtype == 'mesh')
+        or not not node.name:find('^ucsigns:')
+        or (core.get_item_group(node.name, 'ucsign') > 0)
+        or not not node_def.mesh
+        or (node_def.visual == 'mesh')
+        or not not node.name:find('mesh')
+        or (core.get_item_group(node.name, 'mesh') > 0)
+
+    local base_tile = nil
+    if not is_dedicated_sign and not reg_def then
+        base_tile = get_node_front_tile(node_def, node.name, is_metal)
+    elseif is_mesh_sign then
+        local fallback_wood = waysigns.FALLBACK_WOOD
+        if is_metal then
+            base_tile = waysigns.FALLBACK_STEEL
+        else
+            local nname = node.name:lower()
+            if nname:find('acacia') then
+                base_tile = fallback_wood .. '^[colorize:#a03818:50'
+            elseif nname:find('aspen') or nname:find('birch') then
+                base_tile = fallback_wood .. '^[colorize:#e5d5b0:40'
+            elseif nname:find('jungle') then
+                base_tile = fallback_wood .. '^[colorize:#4e2210:60'
+            elseif nname:find('pine') or nname:find('spruce') or nname:find('dark') then
+                base_tile = fallback_wood .. '^[colorize:#22150a:70'
+            else
+                base_tile = fallback_wood
+            end
+        end
+    elseif node_def._itemframe_texture and node_def._itemframe_texture ~= '' then
+        base_tile = clean_tile_name(node_def._itemframe_texture, is_metal, node.name)
+    elseif node_def._sign_texture and node_def._sign_texture ~= '' then
+        base_tile = clean_tile_name(node_def._sign_texture, is_metal, node.name)
+    elseif (node_def.tiles and (type(node_def.tiles) == 'table' or type(node_def.tiles) == 'string'))
+        or (node_def.tile_images and (type(node_def.tile_images) == 'table' or type(node_def.tile_images) == 'string')) then
+        local raw_tiles = node_def.tiles or node_def.tile_images
+        local tile_candidates = {}
+        if type(raw_tiles) == 'table' then
+            -- Face 6 is Luanti standard front face for facedir/nodebox
+            if #raw_tiles >= 6 then
+                table.insert(tile_candidates, raw_tiles[6])
+            end
+            for i, t in ipairs(raw_tiles) do
+                if i ~= 6 then
+                    table.insert(tile_candidates, t)
+                end
+            end
+        elseif type(raw_tiles) == 'string' and raw_tiles ~= '' then
+            table.insert(tile_candidates, raw_tiles)
+        end
+
+        local best_tile = nil
+        local fallback_tile = nil
+        local fallback = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD
+        for _, t in ipairs(tile_candidates) do
+            local cleaned = clean_tile_name(t, is_metal, node.name)
+            if cleaned and cleaned ~= fallback then
+                local lower = cleaned:lower()
+                if lower:find('sign') or lower:find('board') or lower:find('blade') or lower:find('stele')
+                    or lower:find('poster') or lower:find('label') or lower:find('front') then
+                    best_tile = cleaned
+                    break
+                elseif not best_tile then
+                    best_tile = cleaned
+                end
+            elseif not fallback_tile and cleaned then
+                fallback_tile = cleaned
+            end
+        end
+        base_tile = best_tile or fallback_tile or clean_tile_name(tile_candidates[1], is_metal, node.name)
+    elseif node_def.inventory_image and node_def.inventory_image ~= '' then
+        base_tile = clean_tile_name(node_def.inventory_image, is_metal, node.name)
+    end
+
+    local text_color
+    local tile
+    local aspect_ratio
+
+    if reg_def and not has_inscription then
+        is_metal = reg_def.is_metal or false
+        text_color = reg_def.text_color or (is_metal and 0xEEEEEE or 0xFFFFFF)
+        local raw_tile = reg_def.tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
+        tile = clean_tile_name(raw_tile, is_metal, node.name)
+        aspect_ratio = reg_def.aspect_ratio or waysigns.get_aspect_ratio(node.name, node_def, reg_def)
+    else
+        local chosen_tile = nil
+        if has_inscription and waysigns_plaque ~= '' and waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[waysigns_plaque] then
+            chosen_tile = waysigns.PLAQUE_STYLES[waysigns_plaque]
+            is_metal = (waysigns_plaque == 'steel' or waysigns_plaque == 'slate' or waysigns_plaque == 'gold')
+            is_glass = (waysigns_plaque == 'glass')
+        end
+
+        if has_inscription and waysigns_color ~= '' and waysigns.INSCRIPTION_COLORS and waysigns.INSCRIPTION_COLORS[waysigns_color] then
+            text_color = waysigns.INSCRIPTION_COLORS[waysigns_color]
+        else
+            text_color = is_metal and 0xEEEEEE or 0xFFFFFF
+        end
+
+        local raw_tile = chosen_tile or base_tile or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD)
+        tile = clean_tile_name(raw_tile, is_metal, node.name)
+        aspect_ratio = (has_inscription and 1.40) or waysigns.get_aspect_ratio(node.name, node_def, nil)
+    end
+
+    -- Hiking directional arrow detection
+    if node.name:find('hiking:arrow') or node.name:find('direction') then
+        aspect_ratio = 2.2
+    end
+
+    -- Support signs_rx dynamic scale metadata
+    if rx_scale ~= '' then
+        local scale_ar = {
+            wide = 2.1,
+            tall = 1.0,
+            large = 1.45,
+            small = 1.45,
+        }
+        if scale_ar[rx_scale] then
+            aspect_ratio = scale_ar[rx_scale]
+        end
+    end
+
+    -- Support signs_rx dynamic color metadata
+    if rx_color ~= '' then
+        local rx_tints = {
+            teal = '#005533:140',
+            purple = '#330055:140',
+            olive = '#335500:140',
+            indigo = '#003355:140',
+            maroon = '#550033:140',
+            red = '#550000:140',
+            green = '#005500:140',
+            blue = '#000055:140',
+            brown = '#442200:140',
+            black = '#000000:160',
+            gray = '#333333:120',
+        }
+        if rx_tints[rx_color] then
+            tile = tile .. '^[colorize:' .. rx_tints[rx_color]
+        end
+    end
+
+    local is_light_bg
+    if reg_def and reg_def.is_light_bg ~= nil then
+        is_light_bg = reg_def.is_light_bg
+    else
+        is_light_bg = waysigns.is_light_background(tile, node.name)
+    end
+
+    local is_infotext = (has_inscription and not is_dedicated_sign and (clean_info ~= nil or has_visual_quickview)) or nil
+    local data = {
+        nodename = node.name,
+        raw_text = text,
+        text = text,
+        tile = tile,
+        is_metal = is_metal,
+        is_glass = is_glass,
+        is_light_bg = is_light_bg,
+        text_color = text_color,
+        aspect_ratio = aspect_ratio,
+        rx_scale = rx_scale,
+        rx_color = rx_color,
+        waysigns_plaque = waysigns_plaque,
+        waysigns_color = waysigns_color,
+        wrapped = waysigns.wrap_text(text, 30, 5, text_color),
+        has_inscription = has_inscription,
+        is_dedicated_sign = is_dedicated_sign,
+        is_infotext = is_infotext,
+        quickview_items = qv and qv.items or nil,
+        items = qv and qv.items or nil,
+        inv_hash = inv_hash,
+        timestamp = now,
+    }
+
+    if qv or (player and player_name ~= '') then
+        local entry = waysigns.node_cache[pos_key]
+        if not entry or not entry.by_player then
+            entry = { by_player = {} }
+            waysigns.set_cached_node(pos_key, entry)
+        end
+        entry.by_player[player_name] = data
+    else
+        waysigns.set_cached_node(pos_key, data)
+    end
+    return data
+end
 
 ---Retrieve the visual texture representation for an item or node name
 ---@param item_name string Registered item or node name (e.g. "default:apple", "default:wood")
@@ -1179,23 +1281,22 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
     -- Respect container locks and protection in multiplayer
     local respect_locks = waysigns.settings.quickview_respect_locks
     if respect_locks ~= false then
-        local owner = (meta and meta:get_string('owner')) or ''
-        if owner ~= '' then
-            if not player then
-                return nil
+        local is_bypass = player and core.check_player_privs(player, 'protection_bypass')
+        if not is_bypass then
+            local owner = (meta and meta:get_string('owner')) or ''
+            if owner ~= '' then
+                if not player then
+                    return nil
+                end
+                local player_name = player:get_player_name()
+                local is_owner = (owner == player_name)
+                if not is_owner then
+                    return nil
+                end
             end
-            local player_name = player:get_player_name()
-            local is_owner = (owner == player_name)
-            local is_bypass = core.check_player_privs(player, 'protection_bypass')
-            if not is_owner and not is_bypass then
-                return nil
-            end
-        end
-        if player then
-            local player_name = player:get_player_name()
-            if core.is_protected(pos, player_name) then
-                local is_bypass = core.check_player_privs(player, 'protection_bypass')
-                if not is_bypass then
+            if player then
+                local player_name = player:get_player_name()
+                if waysigns.is_protected(pos, player_name, true) then
                     return nil
                 end
             end
@@ -1383,18 +1484,51 @@ end
 function waysigns.get_node_infotext_data(pos, node, player)
     local meta = core.get_meta(pos)
     local raw_infotext = meta:get_string('infotext')
-    if not raw_infotext or raw_infotext == '' or not raw_infotext:find('%S') then
+    local waysigns_text = meta:get_string('waysigns_text')
+    local has_waysigns = (waysigns_text ~= '' and waysigns.is_valid_sign_text(waysigns_text))
+
+    if not has_waysigns and (not raw_infotext or raw_infotext == '' or not raw_infotext:find('%S')) then
         return nil
     end
 
-    local clean_info = waysigns.strip_all_escapes and waysigns.strip_all_escapes(raw_infotext) or raw_infotext
-    if not clean_info or clean_info == '' or not clean_info:find('%S') then
-        return nil
+    if has_waysigns then
+        if not waysigns.get_inscribed_pos(pos) then
+            waysigns.register_inscribed_pos(pos, {
+                author = meta:get_string('waysigns_author'),
+                plaque = meta:get_string('waysigns_plaque'),
+                color = meta:get_string('waysigns_color'),
+                text = waysigns_text,
+            }, true)
+        end
     end
 
-    local unwrapped = clean_info:match('^"(.*)"$')
-    local cand = (unwrapped and unwrapped ~= '') and unwrapped or clean_info
-    if not waysigns.is_valid_sign_text(cand) then
+    local clean_info = nil
+    if raw_infotext and raw_infotext ~= '' and raw_infotext:find('%S') then
+        local cleaned = waysigns.strip_all_escapes and waysigns.strip_all_escapes(raw_infotext) or raw_infotext
+        if cleaned and cleaned ~= '' and cleaned:find('%S') then
+            local unwrapped = cleaned:match('^"(.*)"$')
+            local cand_str = (unwrapped and unwrapped ~= '') and unwrapped or cleaned
+            if waysigns.is_valid_sign_text(cand_str) then
+                clean_info = cand_str
+            end
+        end
+    end
+
+    local cand
+    if has_waysigns and clean_info then
+        if clean_info ~= waysigns_text
+            and clean_info:lower() ~= waysigns_text:lower()
+            and not waysigns_text:find(clean_info, 1, true)
+            and not clean_info:find(waysigns_text, 1, true) then
+            cand = waysigns_text .. '\n' .. clean_info
+        else
+            cand = waysigns_text
+        end
+    elseif has_waysigns then
+        cand = waysigns_text
+    elseif clean_info then
+        cand = clean_info
+    else
         return nil
     end
 
@@ -1405,7 +1539,7 @@ function waysigns.get_node_infotext_data(pos, node, player)
         or (cached_node and not cached_node.by_player and cached_node)
 
     -- Container inventory quickview extraction (with 0.5s throttling)
-    local now = (core.get_us_time and (core.get_us_time() / 1000000)) or os.clock()
+    local now = core.get_us_time() / 1000000
     if cached and cached.nodename == node.name and cached.cand == cand and cached.timestamp and (now - cached.timestamp < 0.5) then
         return cached
     end
@@ -1428,16 +1562,27 @@ function waysigns.get_node_infotext_data(pos, node, player)
     end
 
     local node_def = core.registered_nodes[node.name]
-    local is_metal = not not (node.name:find('steel')
-        or node.name:find('iron')
-        or node.name:find('metal')
-        or node.name:find('stone')
-        or node.name:find('furnace')
-        or node.name:find('machine'))
+    local is_metal = waysigns.is_metal_node(node.name, node_def)
 
     local base_tile = get_node_front_tile(node_def, node.name, is_metal)
+    local text_color = nil
+
+    if has_waysigns then
+        local waysigns_plaque = meta:get_string('waysigns_plaque')
+        local waysigns_color = meta:get_string('waysigns_color')
+        if waysigns_plaque ~= '' and waysigns.PLAQUE_STYLES and waysigns.PLAQUE_STYLES[waysigns_plaque] then
+            base_tile = waysigns.PLAQUE_STYLES[waysigns_plaque]
+            is_metal = (waysigns_plaque == 'steel' or waysigns_plaque == 'slate' or waysigns_plaque == 'gold')
+        end
+        if waysigns_color ~= '' and waysigns.INSCRIPTION_COLORS and waysigns.INSCRIPTION_COLORS[waysigns_color] then
+            text_color = waysigns.INSCRIPTION_COLORS[waysigns_color]
+        end
+    end
+
     local is_light_bg = waysigns.is_light_background(base_tile, node.name)
-    local text_color = is_light_bg and 0x222222 or 0xFFFFFF
+    if not text_color then
+        text_color = is_light_bg and 0x222222 or 0xFFFFFF
+    end
 
     -- Wrapped lines for infotext: allow up to 30 chars per line and 5 lines for balanced presentation
     local wrapped = waysigns.wrap_text(full_cand, 30, 5, text_color)
@@ -1451,10 +1596,12 @@ function waysigns.get_node_infotext_data(pos, node, player)
         is_metal = is_metal,
         is_light_bg = is_light_bg,
         text_color = text_color,
-        aspect_ratio = 1.0, -- Square 1:1 aspect ratio
+        aspect_ratio = has_waysigns and 1.40 or 1.0,
         wrapped = wrapped,
         is_infotext = true,
+        has_inscription = has_waysigns,
         quickview_items = qv and qv.items or nil,
+        items = qv and qv.items or nil,
         inv_hash = inv_hash,
         timestamp = now,
     }
@@ -1481,10 +1628,10 @@ function waysigns.get_entity_inscription_data(object)
         return nil
     end
 
-    local lua_ent = object.get_luaentity and object:get_luaentity()
+    local lua_ent = object:get_luaentity()
     local text = (lua_ent and lua_ent._waysigns_text) or object._waysigns_text
     if not text or text == '' then
-        local props = object.get_properties and object:get_properties()
+        local props = object:get_properties()
         if props and props.infotext and props.infotext ~= '' then
             text = props.infotext
         end
@@ -1503,7 +1650,7 @@ function waysigns.get_entity_inscription_data(object)
     local is_light_bg = waysigns.is_light_background(tile)
     local text_color = waysigns.INSCRIPTION_COLORS[color_name] or (is_light_bg and 0x222222 or 0xFFFFFF)
 
-    local props = object.get_properties and object:get_properties() or {}
+    local props = object:get_properties() or {}
     local height = 1.0
     if props.collisionbox and type(props.collisionbox) == 'table' and props.collisionbox[5] then
         height = math.max(0.3, props.collisionbox[5])

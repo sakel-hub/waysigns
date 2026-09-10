@@ -44,7 +44,14 @@ core = {
         return (n and n.groups and n.groups[group]) or 0
     end,
     get_meta = function(pos)
-        pos.meta = pos.meta or {}
+        _G.mock_world_meta = _G.mock_world_meta or {}
+        local k = pos and string.format('%d,%d,%d', math.floor((pos.x or 0) + 0.5), math.floor((pos.y or 0) + 0.5), math.floor((pos.z or 0) + 0.5))
+        if k and not pos.meta and _G.mock_world_meta[k] then
+            pos.meta = _G.mock_world_meta[k]
+        else
+            pos.meta = pos.meta or {}
+            if k then _G.mock_world_meta[k] = pos.meta end
+        end
         return {
             get_string = function(self, key)
                 return pos.meta and pos.meta[key] or ''
@@ -84,6 +91,10 @@ core = {
     register_on_punchnode = function() end,
     register_on_dignode = function() end,
     register_on_placenode = function() end,
+    registered_on_shutdown = {},
+    register_on_shutdown = function(cb)
+        table.insert(core.registered_on_shutdown, cb)
+    end,
     global_exists = function(name) return _G[name] ~= nil end,
     registered_entities = {},
     registered_tools = {},
@@ -129,6 +140,8 @@ core = {
     get_objects_inside_radius = function(pos, r) return _G.mock_objects or {} end,
     get_connected_players = function() return _G.mock_players or {} end,
     get_player_window_information = function() return nil end,
+    get_us_time = function() return math.floor(os.clock() * 1000000) end,
+    find_nodes_with_meta = function(minp, maxp) return {} end,
     after = function(delay, func) func() end,
     get_node = function(pos) return {name = 'air', param1 = 0, param2 = 0} end,
     _mod_storage_store = {},
@@ -556,6 +569,12 @@ local mock_screen_player = {
     hud_remove = function(self, id)
         captured_hud_defs[id] = nil
     end,
+    get_inventory = function(self) return nil end,
+    get_wielded_item = function(self) return nil end,
+    get_properties = function(self) return { eye_height = 1.625 } end,
+    get_hp = function(self) return 20 end,
+    is_player = function(self) return true end,
+    is_valid = function(self) return true end,
 }
 
 local screen_state = waysigns.get_or_create_player_state(mock_screen_player)
@@ -647,14 +666,17 @@ print('PASS Test 14 (Standard: ' .. w1 .. 'x' .. h1 .. ' [AR ' .. string.format(
 print('--- Test 15: Purge sign text entities ---')
 local removed_entities = {}
 local mock_ent1 = {
+    is_player = function() return false end,
     get_luaentity = function() return { name = 'signs_lib:text' } end,
     remove = function(self) table.insert(removed_entities, 'signs_lib:text') end,
 }
 local mock_ent2 = {
+    is_player = function() return false end,
     get_luaentity = function() return { name = 'mcl_signs:text' } end,
     remove = function(self) table.insert(removed_entities, 'mcl_signs:text') end,
 }
 local mock_ent_other = {
+    is_player = function() return false end,
     get_luaentity = function() return { name = 'mobs_animal:cow' } end,
     remove = function(self) table.insert(removed_entities, 'mobs_animal:cow') end,
 }
@@ -684,6 +706,7 @@ assert(#removed_entities == 2, 'Expected spawn_entity to trigger purge')
 local test_self = { object = { remove = function() table.insert(removed_entities, 'self_removed') end } }
 core.registered_entities['signs_lib:text'].on_activate(test_self)
 assert(removed_entities[#removed_entities] == 'self_removed', 'Expected on_activate to call self.object:remove()')
+_G.mock_objects = nil
 print('PASS Test 16')
 
 print('--- Test 17: Precise face center calculation (get_sign_face_pos) ---')
@@ -1074,9 +1097,11 @@ assert(fitted_h and tonumber(fitted_h) <= 420, 'Board height must fit within 70%
 print('PASS Test 24')
 
 print('--- Test 25: Universal entity suppression across all 8 entity types ---')
+local orig_get_objs_t25 = core.get_objects_inside_radius
 local entities_purged = {}
 local mock_ent_obj = function(ename)
     return {
+        is_player = function() return false end,
         get_luaentity = function() return { name = ename } end,
         remove = function() table.insert(entities_purged, ename) end,
     }
@@ -1100,6 +1125,7 @@ core.get_objects_inside_radius = function(pos, r)
     end
     -- Also include innocent player entity that must NOT be removed
     table.insert(objs, {
+        is_player = function() return false end,
         get_luaentity = function() return { name = 'mobs_animal:cow' } end,
         remove = function() error('Must not remove innocent entity!') end,
     })
@@ -1125,6 +1151,7 @@ end
 entities_purged = {}
 _G.display_api.update_entities({x = 50, y = 1, z = 50})
 assert(#entities_purged == 8, 'display_api hook must trigger purge_sign_entities')
+core.get_objects_inside_radius = orig_get_objs_t25
 print('PASS Test 25')
 
 print('--- Test 26: Auto-contrast, luminance calculation, and light backgrounds ---')
@@ -1665,9 +1692,11 @@ local function run_test_36()
     assert(waysigns.settings.enable_street_signs_entities == false, 'enable_street_signs_entities must default to false')
 
     -- 2. When toggle is false: entities on street_signs are purged
+    local orig_get_objects_t36 = core.get_objects_inside_radius
     local entities_purged_t36 = {}
     local mock_ent_t36 = function(ename, pos)
         return {
+            is_player = function() return false end,
             get_luaentity = function() return { name = ename } end,
             get_pos = function() return pos end,
             remove = function() table.insert(entities_purged_t36, ename) end,
@@ -1847,6 +1876,7 @@ local function run_test_36()
 
     -- Reset setting back to default
     waysigns.settings.enable_street_signs_entities = false
+    core.get_objects_inside_radius = orig_get_objects_t36
 end
 run_test_36()
 print('PASS Test 36')
@@ -3321,8 +3351,8 @@ end)()
     assert(#long_info_data.pages == 1, 'Long title must fit on single page with 30-char/5-line wrapping, got pages: ' .. #long_info_data.pages)
     assert(long_info_data.total_lines == 2, 'Expected 2 wrapped lines')
 
-    -- 3. Verify doubled scroll delay (5.0s default) and pagination cycling
-    assert(waysigns.settings.scroll_delay == 5.0, 'waysigns.settings.scroll_delay must be 5.0s, got: ' .. tostring(waysigns.settings.scroll_delay))
+    -- 3. Verify scroll delay (4.0s default) and pagination cycling
+    assert(waysigns.settings.scroll_delay == 4.0, 'waysigns.settings.scroll_delay must be 4.0s, got: ' .. tostring(waysigns.settings.scroll_delay))
 
     print('PASS Test 56')
 end)()
@@ -3757,11 +3787,13 @@ print('--- Test 60: Unowned container in protected area respecting locks ---')
     assert(qv_blocked == nil, 'Unowned container in protected area must be blocked when quickview_respect_locks is true')
 
     -- 2. When area is NOT protected (public area)
+    waysigns.clear_caches()
     core.is_protected = function(pos, name) return false end
     local qv_allowed = waysigns.extract_node_inventory(prot_pos, node, meta, player_intruder)
     assert(qv_allowed ~= nil and #qv_allowed.items > 0, 'Unowned container in uninhibited public area must be visible')
 
     core.is_protected = orig_is_protected
+    waysigns.clear_caches()
     print('PASS Test 60')
 end)()
 
@@ -4057,6 +4089,7 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
         name = 'bob_intruder',
         get_player_name = function(self) return self.name end,
         is_player = function(self) return true end,
+        get_player_control = function() return {} end,
         privs = {},
     }
 
@@ -4064,6 +4097,7 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
         name = 'alice_owner',
         get_player_name = function(self) return self.name end,
         is_player = function(self) return true end,
+        get_player_control = function() return {} end,
         privs = {},
         wielded = ItemStack({ name = 'waysigns:marker', count = 1, wear = 0 }),
         get_wielded_item = function(self) return self.wielded end,
@@ -4268,6 +4302,7 @@ print('--- Test 66: Inscription erasing & zero durability consumption ---')
         name = 'alice_owner',
         get_player_name = function(self) return self.name end,
         is_player = function(self) return true end,
+        get_player_control = function() return {} end,
         privs = {},
         wielded = ItemStack({ name = 'waysigns:marker', count = 1, wear = 1500 }),
         get_wielded_item = function(self) return self.wielded end,
@@ -4344,7 +4379,7 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
 
     -- Persistence test: save and reload from mod storage
     waysigns.save_inscribed_registry()
-    waysigns.inscribed_positions = {}
+    waysigns.inscribed_blocks = {}
     assert(waysigns.get_inscribed_pos(p1) == nil, 'Registry must be empty after reset')
     waysigns.load_inscribed_registry()
     assert(waysigns.get_inscribed_pos(p1) ~= nil, 'Registry must restore from mod storage')
@@ -4359,7 +4394,7 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     meta2:set_string('waysigns_text', 'Ancient Relic')
     meta2:set_string('waysigns_plaque', 'slate')
     meta2:set_string('waysigns_color', 'cyan')
-    meta2:set_string('waysigns_author', 'bob')
+    meta2:set_string('waysigns_author', 'sense_tester')
     assert(waysigns.get_inscribed_pos(p2) == nil, 'Initially not in spatial registry')
     local insc = waysigns.get_node_inscription(p2)
     assert(insc ~= nil and insc.text == 'Ancient Relic', 'Must return valid inscription')
@@ -4427,8 +4462,11 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     local wp_node = pstate.marker_waypoints['15,2,15']
     assert(wp_node ~= nil, 'Waypoint for nearby node must exist')
     assert(sense_player.hud_adds[wp_node.hud_id].type == 'image_waypoint', 'HUD type must be image_waypoint')
-    assert(sense_player.hud_adds[wp_node.hud_id].text:find('waysigns_marker.png%^%[resize:24x24%^%[opacity:'), 'Must use 24x24 marker icon with opacity modifier')
-    assert(sense_player.hud_adds[wp_node.hud_id].z_index == -250, 'Must have z_index -250')
+    assert(sense_player.hud_adds[wp_node.hud_id].text:find('waysigns_waypoint.png%^%[opacity:'), 'Must use waypoint beacon icon with opacity modifier')
+    assert(sense_player.hud_adds[wp_node.hud_id].scale and sense_player.hud_adds[wp_node.hud_id].scale.x >= 3.0,
+        'Marker waypoint scale must be scaled up for visibility (>= 3.0)')
+    assert(sense_player.hud_adds[wp_node.hud_id].z_index == -350,
+        'Must have z_index -350 (rendered behind sign/infotext plaques at -300 and text at -290)')
 
     -- Far-away node must NOT have a waypoint
     assert(pstate.marker_waypoints['100,2,100'] == nil, 'Far-away node must not be in waypoints')
@@ -4447,6 +4485,19 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     local ent_op = tonumber(ent_tex:match('%^%[opacity:(%d+)'))
     assert(node_op ~= nil and ent_op ~= nil, 'Waypoints must have opacity modifier in texture string')
     assert(ent_op > node_op, string.format('Closer waypoint (op=%d) must have lower translucency (more opaque) than distant waypoint (op=%d)', ent_op, node_op))
+
+    -- Dynamic scale update check
+    waysigns.settings.marker_sense_scale = 5.0
+    waysigns.update_player(sense_player, 0.2)
+    local found_scale_change = false
+    for _, ch in ipairs(sense_player.hud_changes) do
+        if ch.id == wp_node.hud_id and ch.stat == 'scale' and ch.val and ch.val.x == 5.0 then
+            found_scale_change = true
+            break
+        end
+    end
+    assert(found_scale_change, 'HUD scale change must be sent when marker_sense_scale changes')
+    waysigns.settings.marker_sense_scale = 4.0
 
     -- View direction / FOV turnaround check:
     -- Add an inscribed node behind player (player is at 15, 2, 10, looking +Z)
@@ -4546,7 +4597,1303 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     print('PASS Test 67')
 end)()
 
-print('================ ALL 67 UNIT TESTS PASSED ================')
+print('--- Test 68: Inscribed nodes with infotext & inventory quickview overlay, and sign node exclusion from marker tool ---')
+;(function()
+    local function MockItemStack(name, count)
+        return {
+            is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
+            get_name = function(self) return name or '' end,
+            get_count = function(self) return count or 0 end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self)
+                local def = (core.registered_items and core.registered_items[name])
+                    or (core.registered_nodes and core.registered_nodes[name])
+                return def and def.description or name
+            end,
+        }
+    end
+
+    local function MockInventory(lists)
+        return {
+            get_list = function(self, name) return lists[name] end,
+            get_lists = function(self) return lists end,
+            is_empty = function(self, name)
+                local l = lists[name]
+                if not l then return true end
+                for _, s in ipairs(l) do
+                    if not s:is_empty() then return false end
+                end
+                return true
+            end,
+        }
+    end
+
+    core.registered_items['default:diamond'] = { description = 'Diamond', inventory_image = 'default_diamond.png' }
+    core.registered_items['default:gold_ingot'] = { description = 'Gold Ingot', inventory_image = 'default_gold_ingot.png' }
+    core.registered_items['default:steel_ingot'] = { description = 'Steel Ingot', inventory_image = 'default_steel_ingot.png' }
+
+    -- 1. Sign Node Recognition & Exclusion from Inscription Tool
+    local sign_wood = { name = 'default:sign_wall_wood', param2 = 4 }
+    local sign_steel = { name = 'basic_signs:sign_wall_steel', param2 = 0 }
+    local sign_aspen = { name = 'ucsigns:sign_aspen', param2 = 0 }
+    local chest_node = { name = 'default:chest', param2 = 0 }
+    local stone_node = { name = 'default:stone', param2 = 0 }
+    local signal_wire = { name = 'mesecons:signal_wire', param2 = 0 }
+
+    core.registered_nodes['basic_signs:sign_wall_steel'] = {
+        description = 'Steel Wall Sign',
+        drawtype = 'nodebox',
+        groups = { sign = 1 },
+    }
+    core.registered_nodes['ucsigns:sign_aspen'] = {
+        description = 'Aspen UCSign',
+        drawtype = 'mesh',
+        groups = { ucsign = 1 },
+    }
+    core.registered_nodes['mesecons:signal_wire'] = {
+        description = 'Signal Wire',
+        groups = { dig_immediate = 3 },
+    }
+
+    assert(waysigns.is_sign_node(sign_wood) == true, 'default:sign_wall_wood must be recognized as sign node')
+    assert(waysigns.is_sign_node(sign_steel) == true, 'basic_signs:sign_wall_steel must be recognized as sign node')
+    assert(waysigns.is_sign_node(sign_aspen) == true, 'ucsigns:sign_aspen must be recognized as sign node')
+    assert(waysigns.is_sign_node(chest_node) == false, 'default:chest must NOT be recognized as sign node')
+    assert(waysigns.is_sign_node(stone_node) == false, 'default:stone must NOT be recognized as sign node')
+    assert(waysigns.is_sign_node(signal_wire) == false, 'mesecons:signal_wire must NOT be recognized as sign node')
+
+    -- 2. Marker tool interaction on sign nodes must be excluded with player notification
+    local sign_pos = { x = 600, y = 5, z = 600 }
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_get_node = core.get_node
+    core.get_node_or_nil = function(p)
+        if p.x == 600 then return sign_wood end
+        return orig_get_node_or_nil and orig_get_node_or_nil(p)
+    end
+    core.get_node = function(p)
+        if p.x == 600 then return sign_wood end
+        return orig_get_node(p)
+    end
+
+    local test_player = {
+        get_player_name = function() return 'tester' end,
+        is_player = function() return true end,
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, item) self.wielded = item end,
+        wielded = ItemStack('waysigns:marker'),
+        privs = {},
+    }
+
+    _G.last_chat_message = nil
+    _G.last_shown_formspec = nil
+
+    -- a. on_use_marker right-click on sign node
+    local ret_item = waysigns.on_use_marker(test_player.wielded, test_player, { type = 'node', under = sign_pos })
+    assert(_G.last_chat_message ~= nil and _G.last_chat_message.message:find('Signs already have editable text'),
+        'Using marker on a sign node must alert player that signs already have editable text')
+    assert(_G.last_shown_formspec == nil, 'Formspec must NOT open when marker used on a sign node')
+    assert(ret_item:get_wear() == 0, 'No wear should be consumed when marker is rejected on sign node')
+
+    -- b. show_node_inscription_formspec called directly on sign node
+    _G.last_chat_message = nil
+    waysigns.show_node_inscription_formspec(test_player, sign_pos)
+    assert(_G.last_chat_message ~= nil and _G.last_chat_message.message:find('Signs already have editable text'),
+        'show_node_inscription_formspec must reject sign nodes with alert')
+    assert(_G.last_shown_formspec == nil, 'Formspec must NOT open for sign node')
+
+    -- c. set_node_inscription called on sign node
+    local inscribe_result = waysigns.set_node_inscription(sign_pos, 'Hacked text', 'slate', 'white', 'tester')
+    assert(inscribe_result == false, 'set_node_inscription must return false on sign node')
+    local sign_meta = core.get_meta(sign_pos)
+    assert(sign_meta:get_string('waysigns_text') == '', 'waysigns_text must NOT be saved on a sign node')
+
+    -- 3. Inscribed container with both custom waysign text, infotext, and inventory quickview
+    local vault_pos = { x = 700, y = 10, z = 700 }
+    local vault_node = { name = 'default:chest', param2 = 0 }
+    core.get_node_or_nil = function(p)
+        if p.x == 600 then return sign_wood end
+        if p.x == 700 then return vault_node end
+        return orig_get_node_or_nil and orig_get_node_or_nil(p)
+    end
+    core.get_node = function(p)
+        if p.x == 600 then return sign_wood end
+        if p.x == 700 then return vault_node end
+        return orig_get_node(p)
+    end
+
+    local vault_items = {
+        MockItemStack('default:diamond', 16),
+        MockItemStack('default:gold_ingot', 32),
+        MockItemStack('default:steel_ingot', 48),
+    }
+    local vault_inv = MockInventory({ main = vault_items })
+    local vault_meta = core.get_meta(vault_pos)
+    vault_meta:set_string('owner', 'alice')
+    vault_meta:set_string('infotext', 'Treasury Safe (Owner: alice)')
+    vault_pos.inv = vault_inv
+
+    local alice_player = {
+        get_player_name = function() return 'alice' end,
+        is_player = function() return true end,
+        hud_elements = {},
+        hud_removes = {},
+        hud_adds = {},
+        hud_changes = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            table.insert(self.hud_adds, { id = id, def = def })
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+                table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+            table.insert(self.hud_removes, id)
+        end,
+    }
+
+    local bob_player = {
+        get_player_name = function() return 'bob' end,
+        is_player = function() return true end,
+    }
+
+    -- Inscribe the chest with custom waysigns marker text
+    local inscribe_ok = waysigns.set_node_inscription(vault_pos, 'Outpost Alpha', 'gold', 'cyan', 'alice')
+    assert(inscribe_ok == true, 'set_node_inscription must succeed on generic container node')
+
+    -- Alice (owner) queries sign data
+    local alice_data = waysigns.get_sign_data(vault_pos, vault_node, alice_player)
+    assert(alice_data ~= nil, 'waysigns.get_sign_data must return sign data for inscribed container')
+    assert(alice_data.has_inscription == true, 'sign_data.has_inscription must be true')
+    assert(alice_data.is_infotext == true, 'sign_data.is_infotext must be true for container node')
+    assert(alice_data.text:find('Outpost Alpha', 1, true) ~= nil, 'sign_data.text must include custom waysign text')
+    assert(alice_data.text:find('Treasury Safe', 1, true) ~= nil, 'sign_data.text must include node infotext')
+    assert(alice_data.quickview_items ~= nil and #alice_data.quickview_items == 3,
+        'Owner Alice must receive extracted quickview_items')
+    assert(alice_data.quickview_items[1].name == 'default:diamond', 'First quickview item must be diamond')
+
+    -- Bob (visitor) queries sign data (security isolation)
+    local bob_data = waysigns.get_sign_data(vault_pos, vault_node, bob_player)
+    assert(bob_data ~= nil, 'Bob should see sign data')
+    assert(bob_data.text:find('Outpost Alpha', 1, true) ~= nil, 'Bob should see waysigns text')
+    assert(bob_data.text:find('Treasury Safe', 1, true) ~= nil, 'Bob should see infotext')
+    assert(bob_data.quickview_items == nil, 'Bob must NOT receive private container items')
+
+    -- Verify HUD rendering for Alice
+    local pstate = waysigns.get_or_create_player_state(alice_player)
+    pstate.current_sign_pos = vault_pos
+    pstate.current_sign_data = alice_data
+    pstate.sign_face_pos = { x = 700, y = 10.35, z = 700 }
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(alice_player, pstate)
+
+    assert(pstate.hud_bg_id ~= nil, 'Background image HUD element must be created')
+    local vault_bg_elem = alice_player.hud_elements[pstate.hud_bg_id]
+    assert(vault_bg_elem ~= nil, 'Background HUD element definition must exist')
+    assert(vault_bg_elem.text:find('%[combine:'), 'Background texture must composite container quickview dock')
+    assert(vault_bg_elem.text:find('default_diamond%.png'), 'Background texture must include diamond item texture')
+
+    -- Check rendered line text elements
+    assert(pstate.hud_line_ids and #pstate.hud_line_ids >= 2, 'HUD must render multiple lines of text')
+    local line1 = alice_player.hud_elements[pstate.hud_line_ids[1]]
+    local line2 = alice_player.hud_elements[pstate.hud_line_ids[2]]
+    assert(line1.text:find('Outpost Alpha'), 'First rendered line must contain custom waysign text')
+    assert(line2.text:find('Treasury Safe'), 'Second rendered line must contain infotext')
+
+    waysigns.remove_all_huds(alice_player)
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.get_node = orig_get_node
+    print('PASS Test 68')
+end)()
+
+print('--- Test 69: Dynamic discovery of inscribed nodes, waypoint title labels, and self-healing ---')
+;(function()
+    local orig_find_nodes = core.find_nodes_with_meta
+    local orig_line_of_sight = core.line_of_sight
+    core.line_of_sight = function() return true end
+
+    -- 1. Setup mock find_nodes_with_meta
+    local test_meta_nodes = {}
+    core.find_nodes_with_meta = function(minp, maxp)
+        local found = {}
+        for _, p in ipairs(test_meta_nodes) do
+            if p.x >= minp.x and p.x <= maxp.x and
+               p.y >= minp.y and p.y <= maxp.y and
+               p.z >= minp.z and p.z <= maxp.z then
+                table.insert(found, p)
+            end
+        end
+        return found
+    end
+
+    local function MockItemStack(name, count)
+        return {
+            is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
+            get_name = function(self) return name or '' end,
+            get_count = function(self) return count or 0 end,
+        }
+    end
+
+    local p_pos = { x = 800, y = 10, z = 805 }
+    local p_look = { x = 0, y = 0, z = -1 }
+    local dyn_player = {
+        name = 'dyn_tester',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_hp = function() return 20 end,
+        get_pos = function() return p_pos end,
+        get_look_dir = function() return p_look end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_window_size = function() return { x = 1920, y = 1080 } end,
+        get_wielded_item = function(self) return self.wielded end,
+        wielded = MockItemStack('waysigns:marker', 1),
+        hud_elements = {},
+        hud_adds = {},
+        hud_changes = {},
+        hud_removes = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            table.insert(self.hud_adds, { id = id, def = def })
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+                table.insert(self.hud_changes, { id = id, stat = stat, val = val })
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+            table.insert(self.hud_removes, id)
+        end,
+    }
+
+    -- 2. Place an unindexed inscribed node at (800, 10, 800)
+    local unindexed_pos = { x = 800, y = 10, z = 800 }
+    local unindexed_key = waysigns.pos_to_key(unindexed_pos)
+    waysigns.unregister_inscribed_pos(unindexed_pos, true) -- ensure empty
+    table.insert(test_meta_nodes, unindexed_pos)
+
+    local unindexed_meta = core.get_meta(unindexed_pos)
+    unindexed_meta:set_string('waysigns_text', 'Hidden Sanctuary')
+    unindexed_meta:set_string('waysigns_plaque', 'gold')
+    unindexed_meta:set_string('waysigns_color', 'gold')
+    unindexed_meta:set_string('waysigns_author', 'juraj')
+
+    local dyn_pstate = waysigns.get_or_create_player_state(dyn_player)
+    dyn_pstate.marker_last_discover = false -- force discovery run
+
+    -- Execute waypoint update
+    waysigns.update_marker_waypoints(dyn_player, dyn_pstate)
+
+    -- Assert dynamic discovery succeeded
+    local unindexed_entry = waysigns.get_inscribed_pos(unindexed_pos)
+    assert(unindexed_entry ~= nil,
+        'unindexed inscribed node must be dynamically discovered and registered')
+    assert(unindexed_entry.text == 'Hidden Sanctuary',
+        'registered position text must match waysigns_text')
+
+    -- Assert active waypoint was created as image-only indicator (no text label)
+    local wp = dyn_pstate.marker_waypoints[unindexed_key]
+    assert(wp ~= nil, 'Waypoint for discovered node must exist in marker_waypoints')
+    assert(wp.hud_id ~= nil, 'Waypoint must have hud_id (image indicator)')
+    assert(wp.label_id == nil, 'Waypoint must NOT have label_id (image indicator only)')
+
+    local icon_elem = dyn_player.hud_elements[wp.hud_id]
+    assert(icon_elem ~= nil, 'HUD element for icon must exist in player state')
+    assert(icon_elem.type == 'image_waypoint', 'HUD element must be image_waypoint')
+    assert(icon_elem.text:find('waysigns_waypoint'), 'HUD element must display waypoint texture')
+
+    -- 4. Test gaze suppression
+    dyn_pstate.is_visible = true
+    dyn_pstate.current_sign_pos = unindexed_pos
+    waysigns.update_marker_waypoints(dyn_player, dyn_pstate)
+    assert(dyn_pstate.marker_waypoints[unindexed_key] == nil,
+        'Waypoint must be suppressed when player looks directly at the sign')
+
+    -- Look away -> restored
+    dyn_pstate.is_visible = false
+    dyn_pstate.current_sign_pos = nil
+    waysigns.update_marker_waypoints(dyn_player, dyn_pstate)
+    assert(dyn_pstate.marker_waypoints[unindexed_key] ~= nil,
+        'Waypoint must be restored after looking away')
+
+    -- 5. Test self-healing in get_sign_data
+    core.registered_nodes['default:wood'] = { description = 'Wooden Planks', tiles = {'default_wood.png'} }
+    local heal_sign_pos = { x = 810, y = 10, z = 800 }
+    waysigns.unregister_inscribed_pos(heal_sign_pos, true)
+    local heal_sign_meta = core.get_meta(heal_sign_pos)
+    heal_sign_meta:set_string('waysigns_text', 'Self Healed Sign')
+    heal_sign_meta:set_string('waysigns_plaque', 'slate')
+    heal_sign_meta:set_string('waysigns_color', 'cyan')
+
+    local sdata = waysigns.get_sign_data(heal_sign_pos, { name = 'default:wood' }, dyn_player)
+    assert(sdata ~= nil, 'get_sign_data must return data')
+    local heal_sign_entry = waysigns.get_inscribed_pos(heal_sign_pos)
+    assert(heal_sign_entry ~= nil,
+        'get_sign_data must self-heal and register unindexed inscribed position')
+    assert(heal_sign_entry.text == 'Self Healed Sign',
+        'Self-healed registry must retain sign text')
+
+    -- 6. Test self-healing in get_node_infotext_data
+    local heal_info_pos = { x = 820, y = 10, z = 800 }
+    waysigns.unregister_inscribed_pos(heal_info_pos, true)
+    local heal_info_meta = core.get_meta(heal_info_pos)
+    heal_info_meta:set_string('infotext', 'Furnace (Ore: 5)')
+    heal_info_meta:set_string('waysigns_text', 'Smeltery Hub')
+    heal_info_meta:set_string('waysigns_plaque', 'steel')
+    heal_info_meta:set_string('waysigns_color', 'orange')
+
+    local idata = waysigns.get_node_infotext_data(heal_info_pos, { name = 'default:furnace' }, dyn_player)
+    assert(idata ~= nil, 'get_node_infotext_data must return data')
+    local heal_info_entry = waysigns.get_inscribed_pos(heal_info_pos)
+    assert(heal_info_entry ~= nil,
+        'get_node_infotext_data must self-heal and register unindexed container position')
+    assert(heal_info_entry.text == 'Smeltery Hub',
+        'Self-healed registry must retain container waysign text')
+
+    -- Cleanup
+    waysigns.remove_marker_waypoints(dyn_player, dyn_pstate)
+    waysigns.remove_all_huds(dyn_player)
+    core.find_nodes_with_meta = orig_find_nodes
+    core.line_of_sight = orig_line_of_sight
+    print('PASS Test 69')
+end)()
+
+print('--- Test 70: Plaque material style node texture detection (mesh fallback & animated 1st frame crop) ---')
+;(function()
+    waysigns.clear_caches()
+    local test_player = {
+        get_player_name = function() return 'artisan' end,
+        get_wielded_item = function() return { get_name = function() return 'waysigns:marker' end } end,
+    }
+
+    -- 1. Verify waysigns.get_node_front_tile is exposed
+    assert(type(waysigns.get_node_front_tile) == 'function', 'waysigns.get_node_front_tile must be exposed on waysigns')
+
+    -- 2. Mesh node: Verify fallback plaque is used instead of distorted UV map in formspec and in-world
+    core.registered_nodes['mymod:mesh_pillar'] = {
+        description = 'Ancient Mesh Pillar',
+        drawtype = 'mesh',
+        mesh = 'ancient_pillar.obj',
+        tiles = { 'ancient_pillar_uv_map.png' },
+    }
+    local pos_mesh = { x = 40, y = 1, z = 40 }
+    local node_mesh = { name = 'mymod:mesh_pillar', param2 = 0 }
+
+    local pos_anim = { x = 41, y = 1, z = 40 }
+    local node_anim = { name = 'mymod:animated_furnace', param2 = 0 }
+
+    local world_nodes = {
+        [waysigns.pos_to_key(pos_mesh)] = node_mesh,
+        [waysigns.pos_to_key(pos_anim)] = node_anim,
+    }
+    local orig_get_node = core.get_node
+    local orig_get_node_or_nil = core.get_node_or_nil
+    core.get_node = function(p)
+        local k = waysigns.pos_to_key(p)
+        if world_nodes[k] then return world_nodes[k] end
+        return orig_get_node(p)
+    end
+    core.get_node_or_nil = function(p)
+        local k = waysigns.pos_to_key(p)
+        if world_nodes[k] then return world_nodes[k] end
+        return orig_get_node_or_nil and orig_get_node_or_nil(p)
+    end
+
+    local form_sent = nil
+    local orig_show_formspec = core.show_formspec
+    core.show_formspec = function(_pname, _fname, form)
+        form_sent = form
+    end
+
+    waysigns.show_node_inscription_formspec(test_player, pos_mesh)
+    assert(form_sent ~= nil, 'Formspec must be generated for mesh node')
+    assert(not form_sent:find('ancient_pillar_uv_map%.png'),
+        'Mesh node UV map must NEVER be used in plaque material style or swatches!')
+    assert(form_sent:find(waysigns.FALLBACK_WOOD),
+        'Mesh node default plaque option must use FALLBACK_WOOD as fallback swatch')
+
+    -- Save inscription with plaque = 'default'
+    waysigns.set_node_inscription(pos_mesh, "Ancient Pillar Inscription", "default", "white", "artisan")
+
+    -- In-world sign data for inscribed mesh node must also use clean fallback
+    local mesh_sign_data = waysigns.get_sign_data(pos_mesh, node_mesh)
+    assert(mesh_sign_data ~= nil, 'get_sign_data must recognize inscribed mesh node')
+    assert(mesh_sign_data.tile == waysigns.FALLBACK_WOOD,
+        'Inscribed mesh node with default plaque must use FALLBACK_WOOD, got: ' .. tostring(mesh_sign_data.tile))
+    assert(mesh_sign_data.tile ~= 'ancient_pillar_uv_map.png',
+        'Inscribed mesh node must never use raw mesh UV map in-world')
+
+    -- 3. Animated texture: Verify 1st frame is cropped with [combine / [verticalframe in formspec and in-world
+    core.registered_nodes['mymod:animated_furnace'] = {
+        description = 'Arcane Furnace',
+        tiles = {
+            'furnace_top.png', 'furnace_bottom.png', 'furnace_side.png',
+            'furnace_side.png', 'furnace_side.png',
+            {
+                name = 'arcane_furnace_animated.png',
+                animation = { type = 'vertical_frames', aspect_w = 16, aspect_h = 16, length = 2.0 }
+            }
+        }
+    }
+
+    -- Open inscription formspec for animated node
+    form_sent = nil
+    waysigns.show_node_inscription_formspec(test_player, pos_anim)
+    assert(form_sent ~= nil, 'Formspec must be generated for animated node')
+    assert(not form_sent:find(';arcane_furnace_animated%.png;'),
+        'Full un-cropped animated texture strip must NEVER be used in plaque swatches')
+    assert(form_sent:find('%[combine:16x16:0,0=arcane_furnace_animated%.png')
+        or form_sent:find('%[verticalframe:%d+:0'),
+        'Animated texture must be cropped to 1st frame (frame 0) in plaque style swatches and preview')
+
+    -- Save inscription with plaque = 'default'
+    waysigns.set_node_inscription(pos_anim, "Arcane Smelter", "default", "gold", "artisan")
+
+    -- In-world sign data for inscribed animated node must also crop to 1st frame
+    local anim_sign_data = waysigns.get_sign_data(pos_anim, node_anim)
+    assert(anim_sign_data ~= nil, 'get_sign_data must recognize inscribed animated node')
+    assert(anim_sign_data.tile:find('%[combine:16x16:0,0=arcane_furnace_animated%.png')
+        or anim_sign_data.tile:find('%[verticalframe:%d+:0'),
+        'Inscribed animated node in-world must crop plaque tile to 1st frame, got: ' .. tostring(anim_sign_data.tile))
+
+    -- Infotext extraction on animated node must also crop to 1st frame
+    local anim_info_data = waysigns.get_node_infotext_data(pos_anim, node_anim)
+    assert(anim_info_data ~= nil, 'get_node_infotext_data must recognize inscribed animated node')
+    assert(anim_info_data.tile:find('%[combine:16x16:0,0=arcane_furnace_animated%.png')
+        or anim_info_data.tile:find('%[verticalframe:%d+:0'),
+        'Inscribed animated node infotext plaque must crop to 1st frame, got: ' .. tostring(anim_info_data.tile))
+
+    -- 4. Direct verification of waysigns.get_node_front_tile detection re-use
+    local mesh_tile = waysigns.get_node_front_tile(core.registered_nodes['mymod:mesh_pillar'], 'mymod:mesh_pillar', false)
+    assert(mesh_tile == waysigns.FALLBACK_WOOD, 'get_node_front_tile must return FALLBACK_WOOD for mesh node')
+
+    local mesh_metal_tile = waysigns.get_node_front_tile(core.registered_nodes['mymod:mesh_pillar'], 'mymod:mesh_steel_pillar', true)
+    assert(mesh_metal_tile == waysigns.FALLBACK_STEEL, 'get_node_front_tile must return FALLBACK_STEEL for metal mesh node')
+
+    local anim_tile = waysigns.get_node_front_tile(core.registered_nodes['mymod:animated_furnace'], 'mymod:animated_furnace', true)
+    assert(anim_tile:find('%[combine:16x16:0,0=arcane_furnace_animated%.png') or anim_tile:find('%[verticalframe:'),
+        'get_node_front_tile must crop animated front face to 1st frame')
+
+    core.show_formspec = orig_show_formspec
+    core.get_node = orig_get_node
+    print('PASS Test 70')
+end)()
+
+--- Test 71: Marker right-click (on_place) delegation to interactive nodes (default:chest, doors) vs sneak & left-click (on_use)
+;(function()
+    print('--- Test 71: Marker right-click delegation to on_rightclick (chests, doors) vs sneak & left-click ---')
+    local marker_tool = core.registered_tools['waysigns:marker']
+    assert(marker_tool ~= nil, 'waysigns:marker must be registered')
+    assert(marker_tool.on_place ~= nil, 'waysigns:marker must have on_place')
+    assert(marker_tool.on_use ~= nil, 'waysigns:marker must have on_use')
+
+    local chest_opened
+    local chest_pos = { x = 40, y = 5, z = 40 }
+    core.registered_nodes['test:chest'] = {
+        description = 'Test Chest',
+        on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
+            chest_opened = true
+            return itemstack
+        end,
+    }
+    local orig_get_node = core.get_node
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local function mock_node_fn(pos)
+        if pos.x == chest_pos.x and pos.y == chest_pos.y and pos.z == chest_pos.z then
+            return { name = 'test:chest', param2 = 0 }
+        elseif pos.x == 50 then
+            return { name = 'default:stone', param2 = 0 }
+        end
+        return orig_get_node(pos)
+    end
+    core.get_node = mock_node_fn
+    core.get_node_or_nil = mock_node_fn
+
+    local normal_player = {
+        name = 'test_steve',
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        get_player_control = function(self) return { sneak = false } end,
+        privs = {},
+        wielded = ItemStack('waysigns:marker'),
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+    }
+
+    local sneak_player = {
+        name = 'test_steve',
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        get_player_control = function(self) return { sneak = true } end,
+        privs = {},
+        wielded = ItemStack('waysigns:marker'),
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+    }
+
+    local orig_show_formspec = core.show_formspec
+    local shown_formspec
+    core.show_formspec = function(player_name, formname, formspec)
+        shown_formspec = { player_name = player_name, formname = formname, formspec = formspec }
+    end
+
+    local pointed_chest = { type = 'node', under = chest_pos }
+    local pointed_stone = { type = 'node', under = { x = 50, y = 5, z = 50 } }
+
+    -- 1. Normal right-click on chest -> executes chest on_rightclick (opens chest, does NOT show inscription formspec)
+    chest_opened = false
+    shown_formspec = nil
+    marker_tool.on_place(normal_player.wielded, normal_player, pointed_chest)
+    assert(chest_opened == true, 'Normal right-click on test:chest must execute chest on_rightclick')
+    assert(shown_formspec == nil, 'Normal right-click on test:chest must NOT open inscription formspec')
+
+    -- 2. Sneak + right-click on chest -> bypasses chest on_rightclick and opens inscription formspec
+    chest_opened = false
+    shown_formspec = nil
+    marker_tool.on_place(sneak_player.wielded, sneak_player, pointed_chest)
+    assert(chest_opened == false, 'Sneak right-click on test:chest must bypass chest on_rightclick')
+    assert(shown_formspec ~= nil and shown_formspec.formname == 'waysigns:inscribe',
+        'Sneak right-click on test:chest must open waysigns:inscribe formspec')
+
+    -- 3. Left-click (on_use) on chest -> opens inscription formspec directly
+    chest_opened = false
+    shown_formspec = nil
+    marker_tool.on_use(normal_player.wielded, normal_player, pointed_chest)
+    assert(chest_opened == false, 'Left-click (on_use) on test:chest must not execute chest on_rightclick')
+    assert(shown_formspec ~= nil and shown_formspec.formname == 'waysigns:inscribe',
+        'Left-click (on_use) on test:chest must open waysigns:inscribe formspec')
+
+    -- 4. Normal right-click on non-interactive node (default:stone) -> opens inscription formspec
+    shown_formspec = nil
+    marker_tool.on_place(normal_player.wielded, normal_player, pointed_stone)
+    assert(shown_formspec ~= nil and shown_formspec.formname == 'waysigns:inscribe',
+        'Normal right-click on non-interactive node must open waysigns:inscribe formspec')
+
+    -- 5. Entity right-click delegation
+    local entity_clicked
+    local dummy_entity = {
+        is_valid = function(self) return true end,
+        is_player = function(self) return false end,
+        get_pos = function(self) return { x = 60, y = 5, z = 60 } end,
+        get_properties = function(self) return {} end,
+        get_luaentity = function(self)
+            return {
+                on_rightclick = function(self_ent, clicker)
+                    entity_clicked = true
+                end,
+            }
+        end,
+    }
+    local pointed_obj = { type = 'object', ref = dummy_entity }
+
+    -- Normal right-click on entity with on_rightclick -> executes luaentity on_rightclick
+    entity_clicked = false
+    shown_formspec = nil
+    marker_tool.on_place(normal_player.wielded, normal_player, pointed_obj)
+    assert(entity_clicked == true, 'Normal right-click on interactive entity must execute luaentity on_rightclick')
+    assert(shown_formspec == nil, 'Normal right-click on interactive entity must NOT open inscription formspec')
+
+    -- Sneak right-click on entity with on_rightclick -> opens inscription formspec
+    entity_clicked = false
+    shown_formspec = nil
+    marker_tool.on_place(sneak_player.wielded, sneak_player, pointed_obj)
+    assert(entity_clicked == false, 'Sneak right-click on entity must bypass entity on_rightclick')
+    assert(shown_formspec ~= nil and shown_formspec.formname == 'waysigns:inscribe',
+        'Sneak right-click on entity must open waysigns:inscribe formspec')
+
+    core.show_formspec = orig_show_formspec
+    core.get_node = orig_get_node
+    core.get_node_or_nil = orig_get_node_or_nil
+    print('PASS Test 71')
+end)()
+
+-- [Test 72 deferred to corner rivets refactor]
+
+--- Test 73: UTF-8 character length counting in marker formspec
+;(function()
+    print('--- Test 73: UTF-8 character length counting in marker formspec ---')
+    -- 'Příliš žluťoučký kůň úpěl ďábelské ódy' (Czech pangram): 38 UTF-8 characters, 53 raw bytes
+    local utf8_sample = 'Příliš žluťoučký kůň úpěl ďábelské ódy'
+    assert(#utf8_sample == 53, 'Sample string raw byte count must be 53')
+
+    -- Internal char count helper check
+    local _, count = utf8_sample:gsub('[^\128-\191]', '')
+    assert(count == 38, 'UTF-8 character counting must return 38 characters, got: ' .. tostring(count))
+
+    -- Check character limit in formspec submission
+    local cz_player = {
+        name = 'czech_scribe',
+        is_player = function(self) return true end,
+        get_player_name = function(self) return self.name end,
+        get_wielded_item = function(self) return ItemStack('waysigns:marker') end,
+        set_wielded_item = function(self, s) end,
+    }
+    local pos = { x = 120, y = 5, z = 120 }
+    waysigns.show_node_inscription_formspec(cz_player, pos)
+
+    -- Create a 240-character string using 2-byte UTF-8 characters (e.g. 'č' repeated 240 times -> 480 bytes)
+    local long_utf8 = string.rep('č', 240)
+    assert(#long_utf8 == 480, '240 chars of č must be 480 bytes')
+
+    -- Setting text <= max_chars (250) must succeed even though byte count (480) > 250!
+    waysigns.settings.marker_max_chars = 250
+    local last_chat = ''
+    local orig_chat = core.chat_send_player
+    core.chat_send_player = function(name, msg) last_chat = msg end
+
+    local fields_ok = {
+        save = 'Save Inscription',
+        inscription = long_utf8,
+        plaque = 'wood',
+        color = 'white',
+    }
+    local handled = core.registered_on_player_receive_fields[1](cz_player, 'waysigns:inscribe', fields_ok)
+    assert(handled == true or handled == nil, 'Formspec submission should succeed')
+    local saved = waysigns.get_node_inscription(pos)
+    assert(saved ~= nil and saved.text == long_utf8, '240 UTF-8 characters (480 bytes) must save successfully without byte-limit error')
+
+    -- Now test 260 characters of 'č' (520 bytes) -> must be rejected (> 250 chars)
+    local too_long_utf8 = string.rep('č', 260)
+    local fields_fail = {
+        save = 'Save Inscription',
+        inscription = too_long_utf8,
+        plaque = 'wood',
+        color = 'white',
+    }
+    waysigns.show_node_inscription_formspec(cz_player, pos)
+    core.registered_on_player_receive_fields[1](cz_player, 'waysigns:inscribe', fields_fail)
+    assert(last_chat:find('maximum length of 250 characters'), 'Must reject when character count exceeds 250')
+
+    core.chat_send_player = orig_chat
+    print('PASS Test 73')
+end)()
+
+--- Test 74: Ghost waypoint self-healing on destroyed nodes
+;(function()
+    print('--- Test 74: Ghost waypoint self-healing on destroyed nodes ---')
+    local ghost_pos = { x = 900, y = 15, z = 900 }
+
+    -- Register an inscribed node
+    waysigns.register_inscribed_pos(ghost_pos, {
+        text = 'Ancient Monolith',
+        plaque = 'slate',
+        color = 'cyan',
+        author = 'explorer',
+    })
+    assert(waysigns.get_inscribed_pos(ghost_pos) ~= nil, 'Position must be in registry initially')
+
+    -- Simulate TNT explosion / WorldEdit clearing node and wiping metadata
+    local ghost_meta = core.get_meta(ghost_pos)
+    ghost_meta:set_string('waysigns_text', '')
+    ghost_meta:set_string('waysigns_inscribed', '')
+
+    -- Mock player holding marker near ghost node
+    local test_player = {
+        name = 'cleaner',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function() return { x = 900, y = 15, z = 895 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_wielded_item = function() return ItemStack('waysigns:marker') end,
+        hud_add = function() return 1 end,
+        hud_change = function() end,
+        hud_remove = function() end,
+    }
+    local cleaner_state = waysigns.get_or_create_player_state(test_player)
+
+    -- Execute waypoint check
+    waysigns.update_marker_waypoints(test_player, cleaner_state, 0.25)
+
+    -- Verify self-healing: ghost position is purged from spatial registry!
+    assert(waysigns.get_inscribed_pos(ghost_pos) == nil,
+        'update_marker_waypoints must self-heal and purge ghost node whose inscription metadata was destroyed')
+    assert(cleaner_state.marker_waypoints['900,15,900'] == nil,
+        'Ghost node must NOT be added as active waypoint candidate')
+    print('PASS Test 74')
+end)()
+
+--- Test 75: Tool durability helper (waysigns.consume_marker_durability) and is_metal_node
+;(function()
+    print('--- Test 75: Tool durability helper and is_metal_node helper ---')
+    -- 1. Verify waysigns.is_metal_node
+    assert(type(waysigns.is_metal_node) == 'function', 'waysigns.is_metal_node must be a function')
+    assert(waysigns.is_metal_node('default:steelblock') == true, 'steelblock must be metal')
+    assert(waysigns.is_metal_node('default:iron_ore') == true, 'iron_ore must be metal')
+    assert(waysigns.is_metal_node('default:stone') == true, 'stone must be metal/stone')
+    assert(waysigns.is_metal_node('default:furnace') == true, 'furnace must be metal/stone')
+    assert(waysigns.is_metal_node('default:copperblock') == true, 'copperblock must be metal')
+    assert(waysigns.is_metal_node('default:wood') == false, 'wood must not be metal')
+    assert(waysigns.is_metal_node('default:tree') == false, 'tree must not be metal')
+    assert(waysigns.is_metal_node('default:glass') == false, 'glass must not be metal')
+
+    -- Node def group check
+    local metal_group_def = { groups = { metal = 1 } }
+    assert(waysigns.is_metal_node('custom:weird_block', metal_group_def) == true, 'group metal=1 must be metal')
+    local stone_cracky_def = { groups = { cracky = 2 } }
+    assert(waysigns.is_metal_node('custom:hard_rock', stone_cracky_def) == true, 'cracky non-choppy must be metal/stone')
+
+    -- 2. Verify waysigns.consume_marker_durability
+    assert(type(waysigns.consume_marker_durability) == 'function', 'consume_marker_durability must be a function')
+
+    local marker_stack = ItemStack('waysigns:marker')
+    local player_inv = {
+        wielded = marker_stack,
+        get_player_name = function() return 'craftsman' end,
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+    }
+
+    waysigns.settings.marker_uses = 100
+    local consumed = waysigns.consume_marker_durability(player_inv, { x = 0, y = 0, z = 0 })
+    assert(consumed == true, 'Must return true when durability is consumed')
+    assert(player_inv.wielded:get_wear() > 0, 'Wielded marker must accumulate wear')
+
+    -- Player holding a different tool -> no consumption
+    player_inv.wielded = ItemStack('default:pick_wood')
+    local consumed_other = waysigns.consume_marker_durability(player_inv, { x = 0, y = 0, z = 0 })
+    assert(consumed_other == false, 'Must return false when wielded item is not waysigns:marker')
+
+    print('PASS Test 75')
+end)()
+
+--- Test 76: Unified Spatial Block Partitioning and Localized Scribe Sense
+;(function()
+    print('--- Test 76: Unified Spatial Block Partitioning and Localized Scribe Sense ---')
+    -- 1. pos_to_block_key verification
+    local pos_a = { x = 35, y = -10, z = 160 }
+    local expected_bkey = math.floor(35/16) .. ',' .. math.floor(-10/16) .. ',' .. math.floor(160/16)
+    local actual_bkey = waysigns.pos_to_block_key(pos_a)
+    assert(actual_bkey == expected_bkey, 'pos_to_block_key must return mapblock coordinates ' .. expected_bkey .. ', got ' .. tostring(actual_bkey))
+
+    -- 2. Storage hierarchy in inscribed_blocks
+    waysigns.register_inscribed_pos(pos_a, { text = 'Block Test', plaque = 'wood', color = 'white' }, true)
+    local pkey_a = waysigns.pos_to_key(pos_a)
+    assert(waysigns.inscribed_blocks[actual_bkey] ~= nil, 'Mapblock bucket must exist')
+    assert(waysigns.inscribed_blocks[actual_bkey][pkey_a] ~= nil, 'Position entry must exist inside mapblock bucket')
+    assert(waysigns.get_inscribed_pos(pos_a) ~= nil, 'get_inscribed_pos must return entry')
+
+    -- 3. Unregistration cleans up empty mapblock bucket
+    waysigns.unregister_inscribed_pos(pos_a, true)
+    assert(waysigns.get_inscribed_pos(pos_a) == nil, 'Position entry must be removed')
+    assert(waysigns.inscribed_blocks[actual_bkey] == nil, 'Empty mapblock bucket must be cleaned up to prevent memory leaks')
+
+    -- 4. Localized lookup: position outside sense range mapblocks is never checked
+    local far_pos = { x = 2000, y = 100, z = 2000 }
+    waysigns.register_inscribed_pos(far_pos, { text = 'Far Post', plaque = 'slate', color = 'gold' }, true)
+    local near_pos = { x = 10, y = 5, z = 10 }
+    waysigns.register_inscribed_pos(near_pos, { text = 'Near Post', plaque = 'gold', color = 'cyan' }, true)
+
+    local meta_near = core.get_meta(near_pos)
+    meta_near:set_string('waysigns_text', 'Near Post')
+
+    local p_test = {
+        name = 'ranger',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function() return { x = 10, y = 5, z = 8 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_wielded_item = function() return ItemStack('waysigns:marker') end,
+        hud_elements = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            return id
+        end,
+        hud_change = function() end,
+        hud_remove = function(self, id) self.hud_elements[id] = nil end,
+    }
+    local rstate = waysigns.get_or_create_player_state(p_test)
+    waysigns.update_marker_waypoints(p_test, rstate, 0.25)
+
+    local near_key = waysigns.pos_to_key(near_pos)
+    local far_key = waysigns.pos_to_key(far_pos)
+    assert(rstate.marker_waypoints[near_key] ~= nil, 'Near waypoint must be active')
+    assert(rstate.marker_waypoints[far_key] == nil, 'Far waypoint outside local mapblocks must not be active')
+
+    -- Cleanup
+    waysigns.unregister_inscribed_pos(near_pos, true)
+    waysigns.unregister_inscribed_pos(far_pos, true)
+    waysigns.remove_marker_waypoints(p_test, rstate)
+    print('PASS Test 76')
+end)()
+
+--- Test 77: Node metadata formspec passthrough
+;(function()
+    print('--- Test 77: Node metadata formspec passthrough ---')
+    local furnace_pos = { x = 500, y = 10, z = 500 }
+    local furnace_meta = core.get_meta(furnace_pos)
+    furnace_meta:set_string('formspec', 'size[8,9]list[current_name;main;0,0;8,4;]')
+    core.registered_nodes['default:furnace'] = {
+        description = 'Furnace',
+        tiles = { 'default_furnace.png' },
+    }
+
+    local orig_get_node_or_nil = core.get_node_or_nil
+    core.get_node_or_nil = function(pos)
+        if pos and pos.x == 500 and pos.y == 10 and pos.z == 500 then
+            return { name = 'default:furnace' }
+        elseif pos and pos.x == 501 and pos.y == 10 and pos.z == 500 then
+            return { name = 'default:stone' }
+        end
+        return orig_get_node_or_nil and orig_get_node_or_nil(pos)
+    end
+
+    local mock_user = {
+        name = 'smelter',
+        is_player = function() return true end,
+        get_player_name = function(self) return self.name end,
+        ctrl = { sneak = false },
+        get_player_control = function(self) return self.ctrl end,
+        get_wielded_item = function() return ItemStack('waysigns:marker') end,
+        set_wielded_item = function() end,
+    }
+
+    local pt = { type = 'node', under = furnace_pos, above = { x = 500, y = 11, z = 500 } }
+    local marker_item = ItemStack('waysigns:marker')
+
+    -- Case 1: Right-click without sneak -> returns nil (engine passthrough to formspec)
+    _G.last_shown_formspec = nil
+    mock_user.ctrl.sneak = false
+    local t77_res1 = waysigns.on_place_marker(marker_item, mock_user, pt)
+    assert(t77_res1 == nil, 'on_place_marker must return nil for node with metadata formspec when not sneaking')
+    assert(_G.last_shown_formspec == nil, 'WaySigns formspec must NOT open on standard right-click of furnace')
+
+    -- Case 2: Right-click WITH sneak -> opens inscription formspec
+    mock_user.ctrl.sneak = true
+    local t77_res2 = waysigns.on_place_marker(marker_item, mock_user, pt)
+    assert(t77_res2 ~= nil, 'on_place_marker must return itemstack when sneaking')
+    assert(_G.last_shown_formspec ~= nil, 'WaySigns inscription formspec must open when sneak-right-clicking furnace')
+    assert(_G.last_shown_formspec.formname == 'waysigns:inscribe', 'Formspec opened must be waysigns:inscribe')
+
+    -- Case 3: Left-click (punch / on_use) -> opens inscription formspec even without sneaking
+    _G.last_shown_formspec = nil
+    mock_user.ctrl.sneak = false
+    local t77_res3 = waysigns.on_use_marker(marker_item, mock_user, pt)
+    assert(t77_res3 ~= nil, 'on_use_marker must return itemstack')
+    assert(_G.last_shown_formspec ~= nil and _G.last_shown_formspec.formname == 'waysigns:inscribe',
+        'on_use_marker must open inscription formspec on furnace')
+
+    -- Case 4: Node without formspec and without on_rightclick (plain stone) -> opens inscription formspec on right-click
+    local stone_pos = { x = 501, y = 10, z = 500 }
+    core.get_meta(stone_pos):set_string('formspec', '')
+    local pt_stone = { type = 'node', under = stone_pos, above = { x = 501, y = 11, z = 500 } }
+    _G.last_shown_formspec = nil
+    mock_user.ctrl.sneak = false
+    local t77_res4 = waysigns.on_place_marker(marker_item, mock_user, pt_stone)
+    assert(t77_res4 ~= nil, 'on_place_marker on non-interactive node must return itemstack')
+    assert(_G.last_shown_formspec ~= nil and _G.last_shown_formspec.formname == 'waysigns:inscribe',
+        'Right-click on plain node must open inscription formspec')
+
+    core.get_node_or_nil = orig_get_node_or_nil
+    print('PASS Test 77')
+end)()
+
+--- Test 78: Deferred read-time registry saves and persistence hooks
+;(function()
+    print('--- Test 78: Deferred read-time registry saves and persistence hooks ---')
+    -- Track calls to storage:set_string
+    local save_count = 0
+    local orig_get_mod_storage = core.get_mod_storage
+    core.get_mod_storage = function()
+        local s = orig_get_mod_storage()
+        local orig_set_string = s.set_string
+        s.set_string = function(self, k, v)
+            if k == 'inscribed_blocks' then
+                save_count = save_count + 1
+            end
+            return orig_set_string(self, k, v)
+        end
+        return s
+    end
+
+    local test_pos = { x = 1100, y = 20, z = 1100 }
+    waysigns.unregister_inscribed_pos(test_pos, true)
+    local meta = core.get_meta(test_pos)
+    meta:set_string('waysigns_text', 'Read Time Discovery')
+    meta:set_string('waysigns_plaque', 'wood')
+    meta:set_string('waysigns_color', 'white')
+
+    save_count = 0
+
+    -- Query inscription via get_node_inscription
+    local insc = waysigns.get_node_inscription(test_pos)
+    assert(insc ~= nil and insc.text == 'Read Time Discovery', 'get_node_inscription must return inscription')
+    assert(waysigns.get_inscribed_pos(test_pos) ~= nil, 'Position must be self-healed in in-memory spatial index')
+    assert(save_count == 0, 'get_node_inscription must NOT call storage:set_string (no_save = true)')
+
+    -- Query sign data via get_sign_data
+    local sign_pos = { x = 1102, y = 20, z = 1100 }
+    waysigns.unregister_inscribed_pos(sign_pos, true)
+    local sign_meta = core.get_meta(sign_pos)
+    sign_meta:set_string('waysigns_text', 'Sign Read Discovery')
+    sign_meta:set_string('waysigns_plaque', 'slate')
+    local sdata = waysigns.get_sign_data(sign_pos, { name = 'default:wood' }, nil)
+    assert(sdata ~= nil, 'get_sign_data must return data')
+    assert(waysigns.get_inscribed_pos(sign_pos) ~= nil, 'Sign position must be self-healed in memory')
+    assert(save_count == 0, 'get_sign_data must NOT trigger disk I/O save')
+
+    -- Execute shutdown hook -> persists to mod storage
+    assert(#core.registered_on_shutdown > 0, 'Server shutdown hook must be registered')
+    for _, shutdown_fn in ipairs(core.registered_on_shutdown) do
+        shutdown_fn()
+    end
+    assert(save_count >= 1, 'Server shutdown hook must save spatial registry to mod storage')
+
+    -- Restore original storage function & cleanup
+    core.get_mod_storage = orig_get_mod_storage
+    waysigns.unregister_inscribed_pos(test_pos, true)
+    waysigns.unregister_inscribed_pos(sign_pos, true)
+    print('PASS Test 78')
+end)()
+
+--- Test 79: Unloaded mapblock protection (ignore nodes never purged)
+;(function()
+    print('--- Test 79: Unloaded mapblock protection (ignore nodes never purged) ---')
+    local unloaded_pos = { x = 1200, y = 10, z = 1200 }
+
+    waysigns.register_inscribed_pos(unloaded_pos, {
+        text = 'Unloaded Waystone',
+        plaque = 'slate',
+        color = 'cyan',
+        author = 'miner',
+    })
+    assert(waysigns.get_inscribed_pos(unloaded_pos) ~= nil, 'Unloaded pos must be in spatial registry')
+
+    -- Mock get_node_or_nil returning { name = 'ignore' }
+    local orig_get_node_or_nil = core.get_node_or_nil
+    core.get_node_or_nil = function(pos)
+        if vector.equals(pos, unloaded_pos) then
+            return { name = 'ignore', param1 = 0, param2 = 0 }
+        end
+        return orig_get_node_or_nil(pos)
+    end
+
+    local test_player = {
+        name = 'spelunker',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function() return { x = 1200, y = 10, z = 1195 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_wielded_item = function() return ItemStack('waysigns:marker') end,
+        hud_add = function() return 1 end,
+        hud_change = function() end,
+        hud_remove = function() end,
+    }
+    local player_state = waysigns.get_or_create_player_state(test_player)
+
+    waysigns.update_marker_waypoints(test_player, player_state, 0.25)
+
+    -- Verify that position was NOT erroneously purged!
+    assert(waysigns.get_inscribed_pos(unloaded_pos) ~= nil,
+        'update_marker_waypoints must NOT purge valid inscribed nodes in unloaded/generating (ignore) mapblocks')
+
+    -- Cleanup
+    core.get_node_or_nil = orig_get_node_or_nil
+    waysigns.unregister_inscribed_pos(unloaded_pos, true)
+    print('PASS Test 79')
+end)()
+
+--- Test 80: Low-ceiling / tunnel line-of-sight face probe fallback
+;(function()
+    print('--- Test 80: Low-ceiling / tunnel line-of-sight face probe fallback ---')
+    local tunnel_pos = { x = 1300, y = 5, z = 1300 }
+    waysigns.register_inscribed_pos(tunnel_pos, {
+        text = 'Mine Shaft 4',
+        plaque = 'wood',
+        color = 'gold',
+        author = 'digger',
+    })
+
+    local tunnel_meta = core.get_meta(tunnel_pos)
+    tunnel_meta:set_string('waysigns_text', 'Mine Shaft 4')
+    tunnel_meta:set_string('waysigns_inscribed', 'true')
+
+    local orig_get_node_or_nil = core.get_node_or_nil
+    core.get_node_or_nil = function(pos)
+        if vector.equals(pos, tunnel_pos) then
+            return { name = 'default:stone', param1 = 0, param2 = 0 }
+        end
+        return orig_get_node_or_nil(pos)
+    end
+
+    -- In a 2-high tunnel, cand.pos at y + 0.65 (y = 5.65) hits ceiling stone at y = 6.
+    -- Face probe at the node front surface (y ~ 5.0 - 5.3) is in open air.
+    local orig_los = core.line_of_sight
+    local los_probes = {}
+    core.line_of_sight = function(pos1, pos2)
+        los_probes[#los_probes + 1] = pos2
+        -- If probing target_pos at y + 0.65 -> blocked by ceiling (return false)
+        if math.abs(pos2.y - 5.65) < 0.05 then
+            return false
+        end
+        -- Face probe at visible surface -> unobstructed line of sight (return true)
+        return true
+    end
+
+    local test_player = {
+        name = 'tunnel_rat',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function() return { x = 1300, y = 5, z = 1296 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_wielded_item = function() return ItemStack('waysigns:marker') end,
+        hud_add = function(self, def)
+            self._last_hud = def
+            return 999
+        end,
+        hud_change = function() end,
+        hud_remove = function() end,
+    }
+    local player_state = waysigns.get_or_create_player_state(test_player)
+
+    waysigns.update_marker_waypoints(test_player, player_state, 0.25)
+
+    -- Must have probed at least 2 points: the ceiling target pos and the face probe
+    assert(#los_probes >= 2, 'Must have attempted face probe when ceiling candidate was blocked')
+    assert(player_state.marker_waypoints['1300,5,1300'] ~= nil, 'Waypoint must be visible via face probe fallback')
+    assert(test_player._last_hud ~= nil, 'HUD waypoint must be added')
+    -- World pos should be the adjusted face pos (y close to 5, not 5.65)
+    assert(math.abs(test_player._last_hud.world_pos.y - 5.65) > 0.1,
+        'Waypoint world_pos must be placed on visible node face, not inside ceiling')
+
+    -- Cleanup
+    core.line_of_sight = orig_los
+    core.get_node_or_nil = orig_get_node_or_nil
+    waysigns.unregister_inscribed_pos(tunnel_pos, true)
+    print('PASS Test 80')
+end)()
+
+--- Test 81: Unloaded and ungenerated node safety in marker tools
+;(function()
+    print('--- Test 81: Unloaded and ungenerated node safety in marker tools ---')
+    local ungenerated_pos = { x = 9999, y = 9999, z = 9999 }
+    local orig_get_node_or_nil = core.get_node_or_nil
+
+    -- 1. Test when node is completely nil (unloaded/uninitialized)
+    core.get_node_or_nil = function(pos)
+        if vector.equals(pos, ungenerated_pos) then
+            return nil
+        end
+        return orig_get_node_or_nil(pos)
+    end
+
+    local test_player = {
+        name = 'explorer',
+        get_player_name = function(self) return self.name end,
+        is_player = function() return true end,
+        get_player_control = function() return {} end,
+        privs = {},
+    }
+
+    _G.last_shown_formspec = nil
+    -- Must not raise an error or open a formspec
+    waysigns.show_node_inscription_formspec(test_player, ungenerated_pos)
+    assert(_G.last_shown_formspec == nil, 'show_node_inscription_formspec must not open formspec when node is nil')
+
+    local marker_stack = ItemStack('waysigns:marker')
+    local pointed = { type = 'node', under = ungenerated_pos }
+    local res_use = waysigns.on_use_marker(marker_stack, test_player, pointed)
+    assert(res_use ~= nil, 'on_use_marker must return itemstack on nil node')
+    assert(_G.last_shown_formspec == nil, 'on_use_marker must not open formspec on nil node')
+
+    local res_place = waysigns.on_place_marker(marker_stack, test_player, pointed)
+    assert(res_place ~= nil, 'on_place_marker must return itemstack on nil node')
+
+    -- 2. Test when node is 'ignore' (unloaded/generating mapblock)
+    core.get_node_or_nil = function(pos)
+        if vector.equals(pos, ungenerated_pos) then
+            return { name = 'ignore', param1 = 0, param2 = 0 }
+        end
+        return orig_get_node_or_nil(pos)
+    end
+
+    _G.last_shown_formspec = nil
+    waysigns.show_node_inscription_formspec(test_player, ungenerated_pos)
+    assert(_G.last_shown_formspec == nil, 'show_node_inscription_formspec must not open formspec on ignore node')
+
+    res_use = waysigns.on_use_marker(marker_stack, test_player, pointed)
+    assert(res_use ~= nil, 'on_use_marker must return itemstack on ignore node')
+    assert(_G.last_shown_formspec == nil, 'on_use_marker must not open formspec on ignore node')
+
+    res_place = waysigns.on_place_marker(marker_stack, test_player, pointed)
+    assert(res_place ~= nil, 'on_place_marker must return itemstack on ignore node')
+
+    -- Cleanup
+    core.get_node_or_nil = orig_get_node_or_nil
+    print('PASS Test 81')
+end)()
+
+--- Test 82: Mod storage resilience during on_shutdown when core.get_mod_storage() returns nil
+;(function()
+    print('--- Test 82: Mod storage resilience during on_shutdown when core.get_mod_storage() returns nil ---')
+    local saved_json = nil
+    local mock_storage = {
+        get_string = function(self, k) return '' end,
+        set_string = function(self, k, v)
+            if k == 'inscribed_blocks' then
+                saved_json = v
+            end
+        end,
+    }
+
+    -- Prime the cached storage reference
+    waysigns.mod_storage = mock_storage
+
+    -- Simulate Luanti on_shutdown environment where get_current_modname() is empty and get_mod_storage() returns nil
+    local orig_get_mod_storage = core.get_mod_storage
+    core.get_mod_storage = function()
+        return nil
+    end
+
+    -- Call save_inscribed_registry: must NOT throw attempt to index local 'storage' (a nil value)
+    local test_pos = { x = 777, y = 10, z = 777 }
+    waysigns.register_inscribed_pos(test_pos, {
+        text = 'Shutdown Waypoint',
+        plaque = 'gold',
+        color = 'gold',
+        author = 'admin',
+    }, true)
+
+    waysigns.save_inscribed_registry()
+    assert(saved_json ~= nil, 'save_inscribed_registry must successfully save to cached storage when get_mod_storage() is nil')
+    local last_saved = core._mod_storage_store['__last_table__']
+    assert(last_saved ~= nil, 'Saved storage must contain serialized table')
+    local bkey = waysigns.pos_to_block_key(test_pos)
+    local pkey = waysigns.pos_to_key(test_pos)
+    assert(last_saved[bkey] and last_saved[bkey][pkey] and last_saved[bkey][pkey].text == 'Shutdown Waypoint',
+        'Saved JSON store must contain inscription data')
+
+    -- Edge case: even if cached storage is completely nil, must return gracefully without error
+    waysigns.mod_storage = nil
+    waysigns.save_inscribed_registry()
+
+    -- Cleanup
+    core.get_mod_storage = orig_get_mod_storage
+    waysigns.mod_storage = orig_get_mod_storage()
+    waysigns.unregister_inscribed_pos(test_pos, true)
+    print('PASS Test 82')
+end)()
+
+print('--- Test 83: Silent protection checks without chat spam and TTL caching ---')
+;(function()
+    waysigns.clear_caches()
+
+    local prot_pos = { x = 999, y = 5, z = 999 }
+    local node = { name = 'default:chest' }
+    local meta = {
+        get_inventory = function()
+            return {
+                get_list = function(self, lname)
+                    if lname == 'main' then
+                        return {
+                            {
+                                is_empty = function() return false end,
+                                get_name = function() return 'default:gold_ingot' end,
+                                get_count = function() return 10 end,
+                                get_short_description = function() return 'Gold Ingot' end,
+                            }
+                        }
+                    end
+                    return {}
+                end
+            }
+        end,
+        get_string = function(self, k) return '' end,
+    }
+
+    local chat_spam_count = 0
+    local orig_chat = core.chat_send_player
+    local orig_violation = core.record_protection_violation
+    local orig_is_protected = core.is_protected
+    local is_protected_call_count = 0
+
+    core.chat_send_player = function(name, msg)
+        chat_spam_count = chat_spam_count + 1
+    end
+
+    core.record_protection_violation = function(pos, name)
+        chat_spam_count = chat_spam_count + 1
+    end
+
+    -- Simulate a protection mod (like protector) that sends chat messages during core.is_protected
+    core.is_protected = function(pos, name)
+        is_protected_call_count = is_protected_call_count + 1
+        if name == 'intruder' then
+            core.chat_send_player(name, 'This area is protected by Protector.')
+            return true
+        end
+        return false
+    end
+
+    local intruder_player = {
+        get_player_name = function() return 'intruder' end,
+    }
+
+    -- 1. Extract inventory on protected container: must return nil and NEVER spam chat
+    local qv = waysigns.extract_node_inventory(prot_pos, node, meta, intruder_player)
+    assert(qv == nil, 'Protected container must return nil for intruder')
+    assert(chat_spam_count == 0, 'Zero chat messages or violations must be sent during passive pointing (got ' .. chat_spam_count .. ')')
+    assert(is_protected_call_count == 1, 'is_protected should be called once on initial query')
+
+    -- 2. Repeated check within TTL (1.0s) should hit protection_cache without calling core.is_protected
+    local qv2 = waysigns.extract_node_inventory(prot_pos, node, meta, intruder_player)
+    assert(qv2 == nil, 'Protected container must return nil on cached query')
+    assert(is_protected_call_count == 1, 'Repeated raycast check within TTL must use protection_cache (expected 1 call, got ' .. is_protected_call_count .. ')')
+    assert(chat_spam_count == 0, 'Cached check must remain completely silent')
+
+    -- 3. Cache invalidation on punch/dig/place at this position
+    waysigns.invalidate_cache(prot_pos)
+    local qv3 = waysigns.extract_node_inventory(prot_pos, node, meta, intruder_player)
+    assert(qv3 == nil, 'Protected container still blocked')
+    assert(is_protected_call_count == 2, 'Cache invalidation must force fresh query on next check')
+    assert(chat_spam_count == 0, 'Fresh check must also be silenced')
+
+    -- 4. Protection bypass privilege skips core.is_protected completely
+    local orig_check_privs = core.check_player_privs
+    core.check_player_privs = function(player, priv)
+        return priv == 'protection_bypass'
+    end
+    local qv_bypass = waysigns.extract_node_inventory(prot_pos, node, meta, intruder_player)
+    assert(qv_bypass ~= nil and #qv_bypass.items > 0, 'Player with protection_bypass can see container items')
+    assert(is_protected_call_count == 2, 'Bypass check must short-circuit before calling is_protected')
+
+    -- 5. Cleanup on player leave
+    waysigns.on_leaveplayer(intruder_player)
+    local hash = core.hash_node_position(prot_pos)
+    local key = hash .. ':intruder'
+    assert(waysigns.protection_cache[key] == nil, 'Player protection_cache entries must be cleared on disconnect')
+
+    -- Restore mocks
+    core.chat_send_player = orig_chat
+    core.record_protection_violation = orig_violation
+    core.is_protected = orig_is_protected
+    core.check_player_privs = orig_check_privs
+    waysigns.clear_caches()
+    print('PASS Test 83')
+end)()
+
+-- [Test 84 deferred to owner color feature]
+
+print('================ ALL 82 UNIT TESTS PASSED ================')
+
 
 
 
