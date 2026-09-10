@@ -3,9 +3,9 @@
 ![WaySigns Screenshot](screenshot.png)
 
 > [!NOTE]
-> **Signs Are Not Included**: WaySigns does not add new signs or sign nodes to the game. If you need signs to place in your world, please install any standard signs mod (such as `default` signs in Minetest Game, `signs_lib`, `basic_signs`, `street_signs`, `display_modpack`, `signs_rx`, `mcl_signs`, etc.). WaySigns enhances your gameplay by eliminating lag-inducing text entities from those mods and providing high-performance, accessible in-world HUD sign reading.
+> **Signs Are Not Included**: WaySigns does not add new signs or sign nodes to the game. If you need signs to place in your world, please install any standard signs mod (such as `default` signs in Luanti Game / default, `signs_lib`, `basic_signs`, `street_signs`, `display_modpack`, `signs_rx`, `mcl_signs`, etc.). WaySigns enhances your gameplay by eliminating lag-inducing text entities from those mods and providing high-performance, accessible in-world HUD sign reading.
 
-**WaySigns** is a lightweight, immersive sign-reading mod for Luanti (formerly Minetest). When a player points their crosshair at a sign from within 4.5 blocks distance, the sign's text dynamically appears as an in-world 3D HUD waypoint floating smoothly in front of the sign, rendered on top of a dynamic plaque background derived from the sign's own wood or metal texture!
+**WaySigns** is a lightweight, immersive sign-reading mod for Luanti. When a player points their crosshair at a sign from within 4.5 blocks distance, the sign's text dynamically appears as an in-world 3D HUD waypoint floating smoothly in front of the sign, rendered on top of a dynamic plaque background derived from the sign's own wood or metal texture!
 
 ---
 
@@ -25,7 +25,7 @@
   - Suppression of network packets during steady state.
   - Complete memory and HUD cleanup on player leave or death, with automatic raycasting short-circuit while dead.
 - **Broad Mod Compatibility**:
-  - Standard Minetest Game signs (`default:sign_wall_wood`, `default:sign_wall_steel`)
+  - Standard Luanti Game signs (`default:sign_wall_wood`, `default:sign_wall_steel`)
   - `signs_lib` (all 15 wood varieties, post signs, hanging signs, yard signs with 2x1 front-face sheet cropping)
   - `basic_signs` (locked, glass, obsidian glass, plastic, and all color varieties with 2x1 front-face sheet cropping)
   - `street_signs` (intersection street blades with vertical 1x2 blade sheet cropping, highway gantries 2.0–2.5 in 4 colors, warning signs)
@@ -63,9 +63,9 @@
 
 ---
 
-## Configuration (`luanti.conf` / `minetest.conf`)
+## Configuration (`luanti.conf`)
 
-All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> waysigns**, or configured directly in `luanti.conf` (or `minetest.conf` on legacy installations):
+All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> waysigns**, or configured directly in `luanti.conf`:
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
@@ -83,8 +83,16 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_max_chars_per_line` | `30` | Maximum characters per line before word wrapping. |
 | `waysigns_max_lines` | `5` | Maximum visible lines per page. |
 | `waysigns_auto_scroll` | `true` | Automatically cycle pages for long texts. |
-| `waysigns_scroll_delay` | `2.5` | Seconds before advancing to the next page. |
+| `waysigns_scroll_delay` | `5.0` | Seconds before advancing to the next page. |
 | `waysigns_show_frame` | `true` | Show beveled plaque frame and corner rivets. |
+| `waysigns_enable_node_infotext` | `true` | Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces). |
+| `waysigns_infotext_scale` | `2.0` | HUD overlay and typography scaling multiplier for nodes with infotext. |
+| `waysigns_infotext_pos_y_offset` | `0.35` | Vertical position offset in blocks for node infotext waypoints relative to node center. |
+| `waysigns_infotext_overlay_pos_y` | `0.38` | Vertical screen position for 2D overlay mode for node infotext (`0.38` = upper screen). |
+| `waysigns_enable_inventory_quickview` | `true` | Enable container inventory item quickview dock/grid. |
+| `waysigns_quickview_max_slots` | `32` | Maximum number of occupied item slots displayed in quickview dock/grid. |
+| `waysigns_quickview_show_all` | `true` | Display all occupied items in container up to maximum slots in a multi-row grid. |
+| `waysigns_quickview_respect_locks` | `true` | Respect container locks and protection (suppress private inventory contents for non-owners). |
 
 ---
 

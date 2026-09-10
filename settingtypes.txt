@@ -30,7 +30,7 @@ waysigns_max_lines (Max Visible Lines) int 5 2 10
 waysigns_auto_scroll (Auto Scroll Long Texts) bool true
 
 # Delay in seconds before advancing to the next page of long text.
-waysigns_scroll_delay (Scroll Delay) float 2.5 1.0 10.0
+waysigns_scroll_delay (Scroll Delay) float 5.0 1.0 15.0
 
 # Show decorative plaque border and corner rivets around the dynamic texture background.
 waysigns_show_frame (Show Decorative Frame) bool true
@@ -57,3 +57,29 @@ waysigns_contrast_mode (Contrast Mode) enum auto auto,bright_text,preserve
 # Default 0.40 provides rich contrast and WCAG AAA legibility while keeping wood grain and textures clearly visible.
 waysigns_background_darkness (Background Glaze Darkness) float 0.40 0.0 0.8
 
+# Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces, machines).
+waysigns_enable_node_infotext (Enable Node Infotext HUD) bool true
+
+# Infotext HUD overlay and typography scaling multiplier for nodes with infotext.
+# Default 2.0 provides clear visibility and proportional quickview sizing.
+waysigns_infotext_scale (Node Infotext Size Scale) float 2.0 0.8 3.5
+
+# Vertical position offset in blocks for node infotext waypoints relative to node center.
+# Default 0.35 places the infotext in the top half of the node (node spans -0.5 to +0.5).
+waysigns_infotext_pos_y_offset (Node Infotext 3D Vertical Offset) float 0.35 0.0 0.5
+
+# Vertical screen position (Y coordinate 0.0 - 1.0) when using 2D overlay mode for node infotext.
+# Default 0.38 places the infotext in the upper half of the screen, above the crosshair.
+waysigns_infotext_overlay_pos_y (Node Infotext Overlay Screen Y Position) float 0.38 0.1 0.9
+
+# Enable small quickview of items stored in pointed container nodes (chests, furnaces, shelves).
+waysigns_enable_inventory_quickview (Enable Container Inventory Quickview) bool true
+
+# Maximum number of occupied item slots displayed in the background quickview dock/grid (1 to 32).
+waysigns_quickview_max_slots (Quickview Maximum Item Slots) int 32 1 32
+
+# Display all occupied items in the container up to maximum slots (in a clean multi-row grid, no empty slots).
+waysigns_quickview_show_all (Quickview Show All Occupied Items) bool true
+
+# Respect container locks and protection (suppress private inventory contents for non-owners).
+waysigns_quickview_respect_locks (Quickview Respect Container Locks) bool true
