@@ -116,14 +116,26 @@ end
 ---@return string|nil key
 local function resolve_plaque_key(field_value)
     if not field_value then return nil end
+    local str = tostring(field_value):gsub('^%a+:', ''):match('^%s*(.-)%s*$')
+    if str == '' then return nil end
+
+    local num = tonumber(str)
+    if num and PLAQUE_OPTIONS[num] then
+        return PLAQUE_OPTIONS[num].key
+    end
+
+    local str_lower = str:lower()
     for _, opt in ipairs(PLAQUE_OPTIONS) do
-        if opt.label == field_value or opt.key == field_value then
+        if opt.key == str or opt.label == str
+           or opt.key:lower() == str_lower or opt.label:lower() == str_lower then
             return opt.key
         end
     end
-    local num = tonumber(field_value) or tonumber(tostring(field_value):match('^CHG:(%d+)'))
-    if num and PLAQUE_OPTIONS[num] then
-        return PLAQUE_OPTIONS[num].key
+
+    for _, opt in ipairs(PLAQUE_OPTIONS) do
+        if str_lower:find(opt.key:lower(), 1, true) or str_lower:find(opt.label:lower(), 1, true) then
+            return opt.key
+        end
     end
     return nil
 end
@@ -133,14 +145,26 @@ end
 ---@return string|nil key
 local function resolve_color_key(field_value)
     if not field_value then return nil end
+    local str = tostring(field_value):gsub('^%a+:', ''):match('^%s*(.-)%s*$')
+    if str == '' then return nil end
+
+    local num = tonumber(str)
+    if num and COLOR_OPTIONS[num] then
+        return COLOR_OPTIONS[num].key
+    end
+
+    local str_lower = str:lower()
     for _, opt in ipairs(COLOR_OPTIONS) do
-        if opt.label == field_value or opt.key == field_value then
+        if opt.key == str or opt.label == str
+           or opt.key:lower() == str_lower or opt.label:lower() == str_lower then
             return opt.key
         end
     end
-    local num = tonumber(field_value) or tonumber(tostring(field_value):match('^CHG:(%d+)'))
-    if num and COLOR_OPTIONS[num] then
-        return COLOR_OPTIONS[num].key
+
+    for _, opt in ipairs(COLOR_OPTIONS) do
+        if str_lower:find(opt.key:lower(), 1, true) or str_lower:find(opt.label:lower(), 1, true) then
+            return opt.key
+        end
     end
     return nil
 end
@@ -221,13 +245,13 @@ local function build_inscription_formspec(target)
     end
 
     -- Dropdown alongside swatches
-    table.insert(parts, string.format('dropdown[7.65,4.40;2.05,0.80;plaque;%s;%d]',
+    table.insert(parts, string.format('dropdown[7.65,4.40;2.05,0.80;plaque;%s;%d;true]',
         plaque_dropdown_items, plaque_idx))
     table.insert(parts, string.format('tooltip[plaque;%s]', core.formspec_escape(S('Select Plaque Material'))))
 
     -- Left: Text Color Dropdown & Quick Palette
     table.insert(parts, 'label[0.50,5.65;' .. core.formspec_escape(S('Text Color:')) .. ']')
-    table.insert(parts, string.format('dropdown[0.50,6.05;3.20,0.80;color;%s;%d]',
+    table.insert(parts, string.format('dropdown[0.50,6.05;3.20,0.80;color;%s;%d;true]',
         color_dropdown_items, color_idx))
     table.insert(parts, string.format('tooltip[color;%s]', core.formspec_escape(S('Select Text Color'))))
 
@@ -413,7 +437,7 @@ core.register_tool('waysigns:marker', {
     description = S('WaySigns Inscription Marker'),
     short_description = S('WaySigns Inscription Marker'),
     inventory_image = 'waysigns_marker.png',
-    wield_image = 'waysigns_marker.png^[transformR90',
+    wield_image = 'waysigns_marker.png^[transformR270',
     stack_max = 1,
     groups = { tool = 1 },
     on_place = function(itemstack, user, pointed_thing)

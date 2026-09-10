@@ -4002,7 +4002,7 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     local marker_tool = core.registered_tools['waysigns:marker']
     assert(marker_tool ~= nil, 'waysigns:marker tool must be registered')
     assert(marker_tool.inventory_image == 'waysigns_marker.png', 'Marker inventory_image must be waysigns_marker.png')
-    assert(marker_tool.wield_image == 'waysigns_marker.png^[transformR90', 'Marker wield_image must be rotated 90 deg (^[transformR90)')
+    assert(marker_tool.wield_image == 'waysigns_marker.png^[transformR270', 'Marker wield_image must be rotated 270 deg (^[transformR270)')
     assert(marker_tool.groups and marker_tool.groups.tool == 1, 'Marker must be in tool group')
 
     -- 2. Shapeless craft recipe registration
@@ -4071,6 +4071,8 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(fs:find('image_button%[0.50,4.30;1.00,1.00;.-;plaque_sel_default;%]'), 'Default plaque thumbnail swatch missing')
     assert(fs:find('image_button%[1.68,4.30;1.00,1.00;waysigns_sign_wood.png;plaque_sel_wood;%]'), 'Wood plaque thumbnail swatch missing')
     assert(fs:find('image_button%[2.86,4.30;1.00,1.00;waysigns_sign_steel.png;plaque_sel_steel;%]'), 'Steel plaque thumbnail swatch missing')
+    assert(fs:find('dropdown%[7.65,4.40;2.05,0.80;plaque;.-;true%]'), 'Plaque dropdown must support index_event=true')
+    assert(fs:find('dropdown%[0.50,6.05;3.20,0.80;color;.-;true%]'), 'Color dropdown must support index_event=true')
     assert(fs:find('Live Plaque Preview:'), 'Live plaque preview card missing')
     assert(fs:find('button_exit%[7.30,8.70;2.40,0.80;cancel;Cancel%]'), 'Cancel button must be button_exit to close dialog')
 
@@ -4083,7 +4085,7 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(updated_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_steel.png%]'), 'Live preview must display steel plaque texture')
     assert(updated_fs:find('Fortress Guard'), 'Live preview must display updated inscription text')
 
-    -- 4b. Test color dropdown change updates preview color immediately
+    -- 4b. Test color dropdown change updates preview color immediately (label and index event)
     receive_cb(owner_player, 'waysigns:inscribe', { color = 'Lime Green' })
     local color_fs = _G.last_shown_formspec.formspec
     assert(color_fs:find('c@#76FF03%)Fortress Guard'), 'Live preview text must update to Lime Green (#76FF03)')
@@ -4095,11 +4097,23 @@ print('--- Test 65: Marker tool registration, crafting, protection checks & dura
     assert(cyan_fs:find('c@#00E5FF%)Fortress Guard'), 'Live preview text must update to Cyan (#00E5FF)')
     assert(cyan_fs:find('box%[1.54,7.11;0.52,0.52;#ffd700%]'), 'Cyan color swatch must have golden halo')
 
-    -- 4d. Test plaque dropdown change updates preview plaque texture immediately
+    -- 4d. Test plaque dropdown change updates preview plaque texture immediately (label, index event, and CHG: prefix)
     receive_cb(owner_player, 'waysigns:inscribe', { plaque = 'Gold / Brass' })
     local gold_plaque_fs = _G.last_shown_formspec.formspec
-    assert(gold_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_gold.png%]'), 'Live preview must update to Gold plaque texture')
+    assert(gold_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_gold.png%]'), 'Live preview must update to Gold plaque texture via label')
     assert(gold_plaque_fs:find('box%[5.17,4.25;1.10,1.10;#ffd700%]'), 'Gold swatch must have golden halo')
+
+    -- 4e. Test plaque dropdown index event selection (e.g. index 2 = Wood Plaque)
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque = '2' })
+    local wood_plaque_fs = _G.last_shown_formspec.formspec
+    assert(wood_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_wood.png%]'), 'Live preview must update to Wood plaque texture via index 2')
+    assert(wood_plaque_fs:find('box%[1.63,4.25;1.10,1.10;#ffd700%]'), 'Wood swatch must have golden halo')
+
+    -- 4f. Test plaque dropdown CHG: prefix event (e.g. CHG:6 = Frosted Glass)
+    receive_cb(owner_player, 'waysigns:inscribe', { plaque = 'CHG:6' })
+    local glass_plaque_fs = _G.last_shown_formspec.formspec
+    assert(glass_plaque_fs:find('image%[4.20,6.15;5.40,1.95;waysigns_sign_glass.png%]'), 'Live preview must update to Glass plaque texture via CHG:6')
+    assert(glass_plaque_fs:find('box%[6.35,4.25;1.10,1.10;#ffd700%]'), 'Glass swatch must have golden halo')
 
     -- 5. Test Cancel button closes formspec
     _G.last_closed_formspec = nil
