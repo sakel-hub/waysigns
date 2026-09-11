@@ -257,6 +257,8 @@ if not ItemStack then
             get_name = function(self) return self.name end,
             get_count = function(self) return self.count end,
             get_wear = function(self) return self.wear end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self) return nil end,
             is_empty = function(self) return (self.count or 0) <= 0 or (self.name or '') == '' end,
             set_count = function(self, c) self.count = c end,
             add_wear = function(self, amount)
@@ -376,6 +378,80 @@ end
 dofile(script_dir .. '/api.lua')
 dofile(script_dir .. '/compat.lua')
 dofile(script_dir .. '/marker.lua')
+
+do
+    local default_player_methods = {
+        is_valid = function(self) return true end,
+        is_player = function(self) return true end,
+        get_hp = function(self) return 20 end,
+        get_properties = function(self) return { eye_height = 1.625 } end,
+        get_wielded_item = function(self) return ItemStack('') end,
+        get_meta = function(self)
+            return {
+                get_string = function(_self_meta, _key) return '' end,
+                set_string = function(_self_meta, _key, _val) end,
+            }
+        end,
+        hud_add = function(self, _def) return 1 end,
+        hud_change = function(self, _id, _stat, _val) end,
+        hud_remove = function(self, _id) end,
+        get_pos = function(self) return { x = 0, y = 0, z = 0 } end,
+        get_look_dir = function(self) return { x = 0, y = 0, z = 1 } end,
+        get_inventory = function(self) return nil end,
+    }
+    local player_mt = { __index = default_player_methods }
+
+    local function ensure_player_mock(player)
+        if player and type(player) == 'table' and not getmetatable(player) then
+            setmetatable(player, player_mt)
+        end
+        return player
+    end
+
+    local orig_get_or_create = waysigns.get_or_create_player_state
+    waysigns.get_or_create_player_state = function(player)
+        return orig_get_or_create(ensure_player_mock(player))
+    end
+
+    local orig_update_player = waysigns.update_player
+    waysigns.update_player = function(player, dtime)
+        return orig_update_player(ensure_player_mock(player), dtime)
+    end
+
+    local orig_is_player_dead = waysigns.is_player_dead
+    waysigns.is_player_dead = function(player)
+        return orig_is_player_dead(ensure_player_mock(player))
+    end
+
+    local orig_remove_all_huds = waysigns.remove_all_huds
+    waysigns.remove_all_huds = function(player)
+        return orig_remove_all_huds(ensure_player_mock(player))
+    end
+
+    local orig_consume_marker = waysigns.consume_marker_durability
+    waysigns.consume_marker_durability = function(player, pos)
+        return orig_consume_marker(ensure_player_mock(player), pos)
+    end
+
+    local orig_on_joinplayer = waysigns.on_joinplayer
+    waysigns.on_joinplayer = function(player)
+        return orig_on_joinplayer(ensure_player_mock(player))
+    end
+
+    local orig_on_leaveplayer = waysigns.on_leaveplayer
+    waysigns.on_leaveplayer = function(player)
+        return orig_on_leaveplayer(ensure_player_mock(player))
+    end
+
+    local orig_get_connected_players = core.get_connected_players
+    core.get_connected_players = function()
+        local list = orig_get_connected_players()
+        for _, p in ipairs(list) do
+            ensure_player_mock(p)
+        end
+        return list
+    end
+end
 
 print('--- Test 1: wrap_text short text ---')
 local res1 = waysigns.wrap_text('Hello World', 30, 5)
