@@ -6933,7 +6933,121 @@ end)()
     print('PASS Test 90')
 end)()
 
-print('================ ALL 90 UNIT TESTS PASSED ================')
+;(function()
+    print('--- Test 91: Luanti API Best Practices & Pagination State Verification ---')
+
+    local hud_id_seq = 1000
+    local test91_player = {
+        hud_elements = {},
+        hud_adds = {},
+        hud_changes = {},
+        get_player_name = function() return 'test91_user' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_hp = function() return 20 end,
+        get_meta = function() return { get_string = function() return '' end } end,
+        hud_add = function(self, def)
+            hud_id_seq = hud_id_seq + 1
+            local id = hud_id_seq
+            self.hud_elements[id] = {
+                type = def.type,
+                text = def.text,
+                name = def.name,
+                number = def.number,
+                offset = def.offset and { x = def.offset.x, y = def.offset.y },
+                world_pos = def.world_pos and { x = def.world_pos.x, y = def.world_pos.y, z = def.world_pos.z },
+                size = def.size and { x = def.size.x },
+                position = def.position and { x = def.position.x, y = def.position.y },
+            }
+            self.hud_adds[id] = self.hud_elements[id]
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if not self.hud_elements[id] then return end
+            self.hud_changes[id] = self.hud_changes[id] or {}
+            self.hud_changes[id][stat] = val
+            if stat == 'name' then
+                self.hud_elements[id].name = val
+            elseif stat == 'text' then
+                self.hud_elements[id].text = val
+            elseif stat == 'number' then
+                self.hud_elements[id].number = val
+            elseif stat == 'offset' then
+                self.hud_elements[id].offset = { x = val.x, y = val.y }
+            elseif stat == 'world_pos' then
+                self.hud_elements[id].world_pos = { x = val.x, y = val.y, z = val.z }
+            elseif stat == 'size' then
+                self.hud_elements[id].size = { x = val.x }
+            elseif stat == 'position' then
+                self.hud_elements[id].position = { x = val.x, y = val.y }
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+        end,
+    }
+
+    local pstate = waysigns.get_or_create_player_state(test91_player)
+    pstate.current_sign_pos = { x = 10, y = 5, z = 12 }
+    pstate.sign_face_pos = { x = 10, y = 5, z = 12.0625 }
+    pstate.hud_display_mode = 'waypoint'
+    waysigns.settings.display_mode = 'waypoint'
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+
+    local multi_data = {
+        raw_text = 'Page 1 text\nPage 2 text\nPage 3 text',
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.4,
+        is_light_bg = false,
+        wrapped = {
+            pages = {
+                { { text = 'Page 1', color = 0xFFFFFF } },
+                { { text = 'Page 2', color = 0xFFFFFF } },
+            },
+            total_lines = 1,
+            max_line_len = 6,
+        },
+    }
+    pstate.current_sign_data = multi_data
+    pstate.current_page = 1
+
+    -- 1. Initial render: verify rendered_page_color is tracked
+    waysigns.render_hud(test91_player, pstate)
+    assert(pstate.hud_page_id ~= nil, 'hud_page_id must be created')
+    assert(pstate.rendered_page_color ~= nil, 'rendered_page_color must be tracked')
+    local initial_color = pstate.rendered_page_color
+
+    -- 2. Contrast change without sign pos change (e.g. background changes to light)
+    multi_data.is_light_bg = true
+    waysigns.render_hud(test91_player, pstate)
+    assert(pstate.rendered_page_color ~= initial_color, 'rendered_page_color must update when contrast changes')
+    assert(test91_player.hud_elements[pstate.hud_page_id].number == pstate.rendered_page_color,
+        'hud element number must match updated rendered_page_color')
+
+    -- 3. In waypoint mode, simulate page advance (page_changed = true) with updated sign face position
+    local new_pos = { x = 20, y = 5, z = 25.0625 }
+    pstate.sign_face_pos = new_pos
+    pstate.current_page = 2
+    waysigns.render_hud(test91_player, pstate)
+    local page_hud = test91_player.hud_elements[pstate.hud_page_id]
+    assert(page_hud.world_pos ~= nil, 'page_hud must have world_pos')
+    assert(page_hud.world_pos.x == new_pos.x and page_hud.world_pos.z == new_pos.z,
+        'page_hud world_pos must be updated via hud_change on page switch')
+
+    -- 4. Vector direction inversion test in get_sign_front_dir
+    core.registered_nodes['test:test_sign_facedir'] = { paramtype2 = 'facedir' }
+    local ptype_facedir_node = { name = 'test:test_sign_facedir', param2 = 0 }
+    local fdir = waysigns.get_sign_front_dir(ptype_facedir_node)
+    assert(fdir ~= nil and fdir.x ~= nil and fdir.y ~= nil and fdir.z ~= nil,
+        'get_sign_front_dir must return a valid vector')
+
+    -- Cleanup
+    waysigns.remove_all_huds(test91_player)
+    assert(pstate.rendered_page_color == nil, 'rendered_page_color must be reset to nil on remove_all_huds')
+    print('PASS Test 91')
+end)()
+
+print('================ ALL 91 UNIT TESTS PASSED ================')
 
 
 

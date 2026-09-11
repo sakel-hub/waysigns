@@ -40,6 +40,8 @@
 ---@field purge_timer number
 ---@field last_purged_pos Vector|nil
 ---@field rendered_page integer|nil
+---@field rendered_page_text string|nil
+---@field rendered_page_color integer|nil
 ---@field rendered_scale number|nil
 ---@field rendered_badge_x number|nil
 ---@field rendered_badge_y number|nil
@@ -936,24 +938,24 @@ function waysigns.get_sign_front_dir(node)
     if ptype == 'wallmounted' or ptype == 'colorwallmounted' then
         local back = core.wallmounted_to_dir(p2 % 8)
         if back then
-            return vector.multiply(back, -1)
+            return { x = -back.x, y = -back.y, z = -back.z }
         end
     elseif ptype == 'facedir' or ptype == 'colorfacedir' then
         local back = core.facedir_to_dir(p2 % 32)
         if back then
-            return vector.multiply(back, -1)
+            return { x = -back.x, y = -back.y, z = -back.z }
         end
     elseif ptype == '4dir' or ptype == 'color4dir' then
         local back = core.fourdir_to_dir(p2 % 4)
         if back then
-            return vector.multiply(back, -1)
+            return { x = -back.x, y = -back.y, z = -back.z }
         end
     elseif ptype == 'degrotate' or ptype == 'colordegrotate' then
         local deg = (p2 % 240) * 1.5
         local yaw = math.rad(deg + 1)
         local back = core.yaw_to_dir(yaw)
         if back then
-            return vector.multiply(back, -1)
+            return { x = -back.x, y = -back.y, z = -back.z }
         end
     end
 
@@ -1359,6 +1361,7 @@ function waysigns.get_or_create_player_state(player)
             rendered_line_colors = {},
             rendered_line_offsets = {},
             rendered_page_text = nil,
+            rendered_page_color = nil,
             rendered_badge_x = nil,
             rendered_badge_y = nil,
             rendered_bg_texture = nil,
@@ -1409,6 +1412,7 @@ function waysigns.remove_all_huds(player)
     state.rendered_line_colors = {}
     state.rendered_line_offsets = {}
     state.rendered_page_text = nil
+    state.rendered_page_color = nil
     state.rendered_badge_x = nil
     state.rendered_badge_y = nil
     state.rendered_bg_texture = nil
@@ -1886,6 +1890,7 @@ function waysigns.render_hud(player, state)
                 })
             end
             state.rendered_page_text = display_page
+            state.rendered_page_color = page_color
             state.rendered_badge_x = badge_x
             state.rendered_badge_y = badge_y
         else
@@ -1897,14 +1902,19 @@ function waysigns.render_hud(player, state)
                 end
                 state.rendered_page_text = display_page
             end
+            if state.rendered_page_color ~= page_color then
+                player:hud_change(state.hud_page_id, 'number', page_color)
+                state.rendered_page_color = page_color
+            end
             if state.rendered_badge_x ~= badge_x or state.rendered_badge_y ~= badge_y then
                 player:hud_change(state.hud_page_id, 'offset', { x = badge_x, y = badge_y })
                 state.rendered_badge_x = badge_x
                 state.rendered_badge_y = badge_y
             end
             if page_changed then
-                player:hud_change(state.hud_page_id, 'number', page_color)
-                if not is_waypoint then
+                if is_waypoint and world_pos then
+                    player:hud_change(state.hud_page_id, 'world_pos', world_pos)
+                elseif not is_waypoint then
                     player:hud_change(state.hud_page_id, 'size', { x = math.max(0.8, hud_scale * 0.80) })
                     player:hud_change(state.hud_page_id, 'position', { x = 0.5, y = overlay_y })
                 end
@@ -1914,6 +1924,7 @@ function waysigns.render_hud(player, state)
         player:hud_remove(state.hud_page_id)
         state.hud_page_id = nil
         state.rendered_page_text = nil
+        state.rendered_page_color = nil
         state.rendered_badge_x = nil
         state.rendered_badge_y = nil
     end
