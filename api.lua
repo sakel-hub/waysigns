@@ -1209,7 +1209,7 @@ function waysigns.get_or_create_player_state(player)
             check_timer = 0,
             purge_timer = 0,
             last_purged_pos = nil,
-            eye_height = (player.get_properties and player:get_properties().eye_height) or 1.625,
+            eye_height = player:get_properties().eye_height or 1.625,
             scratch_eye_pos = { x = 0, y = 0, z = 0 },
             scratch_ray_end = { x = 0, y = 0, z = 0 },
             marker_waypoints = {},
@@ -1273,10 +1273,10 @@ function waysigns.is_player_dead(player)
     if not player then
         return false
     end
-    if player.get_hp and player:get_hp() <= 0 then
+    if player:get_hp() <= 0 then
         return true
     end
-    local meta = player.get_meta and player:get_meta()
+    local meta = player:get_meta()
     if meta and meta:get_string('deathstats:death_active') == '1' then
         return true
     end
@@ -2147,7 +2147,7 @@ function waysigns.update_player(player, dtime)
     if state.check_timer >= waysigns.settings.check_interval then
         state.check_timer = 0
 
-        local eye_height = state.eye_height or (player.get_properties and player:get_properties().eye_height) or 1.625
+        local eye_height = state.eye_height or player:get_properties().eye_height or 1.625
         local player_pos = player:get_pos()
         if not player_pos then
             return
@@ -2307,7 +2307,7 @@ function waysigns.update_player(player, dtime)
         if state.marker_sense_timer >= interval then
             local elapsed_sense = state.marker_sense_timer
             state.marker_sense_timer = 0
-            local wielded_item = player.get_wielded_item and player:get_wielded_item()
+            local wielded_item = player:get_wielded_item()
             local item_name = wielded_item and wielded_item:get_name()
             if item_name == 'waysigns:marker' then
                 waysigns.update_marker_waypoints(player, state, elapsed_sense)
@@ -2325,7 +2325,7 @@ end
 function waysigns.globalstep(dtime)
     local players = core.get_connected_players()
     for _, player in ipairs(players) do
-        if player and (not player.is_valid or player:is_valid()) then
+        if player and player:is_valid() then
             waysigns.update_player(player, dtime)
         end
     end
@@ -2334,7 +2334,7 @@ end
 ---Initialize player state tracking when a player joins the game
 ---@param player ObjectRef Connecting player reference
 function waysigns.on_joinplayer(player)
-    if player and (not player.is_valid or player:is_valid()) then
+    if player and player:is_valid() then
         waysigns.get_or_create_player_state(player)
     end
 end
