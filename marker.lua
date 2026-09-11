@@ -155,7 +155,7 @@ local function build_inscription_formspec(target)
         local node = core.get_node_or_nil(target.pos)
         local node_def = node and (core.registered_nodes[node.name] or {})
         local is_metal = waysigns.is_metal_node(node and node.name, node_def)
-        target.default_tile = waysigns.get_node_front_tile and waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
+        target.default_tile = waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
             or (is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD or 'waysigns_sign_slate.png')
     end
 
@@ -317,7 +317,7 @@ end
 ---@param pos Vector|nil Event position for break sound
 ---@return boolean was_consumed Whether durability was consumed
 function waysigns.consume_marker_durability(player, pos)
-    if not player or not player.get_wielded_item then return false end
+    if not player or not player:is_player() then return false end
     local wielded = player:get_wielded_item()
     if not wielded or wielded:get_name() ~= 'waysigns:marker' then
         return false
@@ -375,7 +375,7 @@ function waysigns.show_node_inscription_formspec(player, pos)
 
     local current = waysigns.get_node_inscription(pos) or {}
     local is_metal = node and waysigns.is_metal_node(node.name, node_def)
-    local default_tile = waysigns.get_node_front_tile and waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
+    local default_tile = waysigns.get_node_front_tile(node_def, node and node.name, is_metal)
     if not default_tile or default_tile == '' then
         default_tile = is_metal and waysigns.FALLBACK_STEEL or waysigns.FALLBACK_WOOD or 'waysigns_sign_slate.png'
     end
@@ -710,7 +710,7 @@ core.register_on_player_receive_fields(function(player, formname, fields)
         end
     elseif target.type == 'entity' then
         local obj = target.object
-        if not obj or not obj.is_valid or not obj:is_valid() then
+        if not obj or not obj:is_valid() then
             core.chat_send_player(player_name, S('[WaySigns] Target entity no longer exists.'))
             active_targets[player_name] = nil
             core.close_formspec(player_name, 'waysigns:inscribe')

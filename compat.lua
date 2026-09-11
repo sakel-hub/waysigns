@@ -1331,9 +1331,9 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
                 total_item_count = total_item_count + count
                 if not item_map[item_name] then
                     local item_def = core.registered_items[item_name] or {}
-                    local desc = stack.get_short_description and stack:get_short_description()
+                    local desc = stack:get_short_description()
                     if not desc or desc == '' then
-                        desc = stack.get_description and stack:get_description()
+                        desc = stack:get_description()
                     end
                     if not desc or desc == '' then
                         desc = item_def.description or item_name
@@ -1363,25 +1363,23 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
         local list_names = {}
         local priority_lists = { 'main', 'dst', 'src', 'fuel', 'books', 'vessels', 'storage', 'input', 'output' }
         for _, lname in ipairs(priority_lists) do
-            if not checked_lists[lname] and inv.get_list and inv:get_list(lname) then
+            if not checked_lists[lname] and inv:get_list(lname) then
                 checked_lists[lname] = true
                 list_names[#list_names + 1] = lname
             end
         end
-        if inv.get_lists then
-            local all_lists = inv:get_lists()
-            if all_lists then
-                local extra_lists = {}
-                for lname, _ in pairs(all_lists) do
-                    if not checked_lists[lname] then
-                        checked_lists[lname] = true
-                        extra_lists[#extra_lists + 1] = lname
-                    end
+        local all_lists = inv:get_lists()
+        if all_lists then
+            local extra_lists = {}
+            for lname, _ in pairs(all_lists) do
+                if not checked_lists[lname] then
+                    checked_lists[lname] = true
+                    extra_lists[#extra_lists + 1] = lname
                 end
-                table.sort(extra_lists)
-                for _, lname in ipairs(extra_lists) do
-                    list_names[#list_names + 1] = lname
-                end
+            end
+            table.sort(extra_lists)
+            for _, lname in ipairs(extra_lists) do
+                list_names[#list_names + 1] = lname
             end
         end
         local found = false
@@ -1419,9 +1417,9 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
     end
 
     -- 3. Check player-bound inventory (e.g. x_obsidianmese:chest, enderchests)
-    if #item_order == 0 and player and player.get_inventory then
+    if #item_order == 0 and player then
         local pinv = player:get_inventory()
-        if pinv and pinv.get_list then
+        if pinv then
             local plist = pinv:get_list(node.name) or pinv:get_list(base_name)
             if (not plist or #plist == 0) and (node.name:find('enderchest') or node.name:find('ender_chest')) then
                 plist = pinv:get_list('enderchest') or pinv:get_list('mcl_enderchest')
@@ -1652,7 +1650,7 @@ end
 ---@param object ObjectRef Entity reference
 ---@return table|nil sign_data Extracted sign data or nil if not inscribed
 function waysigns.get_entity_inscription_data(object)
-    if not object or not object.get_pos then
+    if not object then
         return nil
     end
 
@@ -1871,7 +1869,7 @@ local function apply_entity_suppression()
                 }
             end
             rawset(ent_def, 'on_activate', function(self, staticdata, dtime_s)
-                if ent_name == 'signs_lib:text' and self.object and self.object.get_pos and is_preserved_street_sign(self.object:get_pos()) then
+                if ent_name == 'signs_lib:text' and self.object and is_preserved_street_sign(self.object:get_pos()) then
                     local orig_act = orig_ent_hooks[ent_name] and orig_ent_hooks[ent_name].on_activate
                     if orig_act then
                         return orig_act(self, staticdata, dtime_s)
@@ -1883,7 +1881,7 @@ local function apply_entity_suppression()
                 end
             end)
             rawset(ent_def, 'on_step', function(self, dtime)
-                if ent_name == 'signs_lib:text' and self.object and self.object.get_pos and is_preserved_street_sign(self.object:get_pos()) then
+                if ent_name == 'signs_lib:text' and self.object and is_preserved_street_sign(self.object:get_pos()) then
                     local orig_step = orig_ent_hooks[ent_name] and orig_ent_hooks[ent_name].on_step
                     if orig_step then
                         return orig_step(self, dtime)
