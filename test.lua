@@ -443,6 +443,21 @@ do
         return orig_on_leaveplayer(ensure_player_mock(player))
     end
 
+    local orig_extract_inv = waysigns.extract_node_inventory
+    waysigns.extract_node_inventory = function(pos, node, meta, player)
+        return orig_extract_inv(pos, node, meta, ensure_player_mock(player))
+    end
+
+    local orig_effective_scale = waysigns.get_effective_scale
+    waysigns.get_effective_scale = function(player, is_infotext, precomputed_w, precomputed_h)
+        return orig_effective_scale(ensure_player_mock(player), is_infotext, precomputed_w, precomputed_h)
+    end
+
+    local orig_window_size = waysigns.get_player_window_size
+    waysigns.get_player_window_size = function(player)
+        return orig_window_size(ensure_player_mock(player))
+    end
+
     local orig_get_connected_players = core.get_connected_players
     core.get_connected_players = function()
         local list = orig_get_connected_players()
@@ -797,7 +812,12 @@ local spawn_result = signs_lib.spawn_entity({x = 10, y = 5, z = 20}, 'some_textu
 assert(spawn_result == nil, 'Expected signs_lib.spawn_entity to return nil')
 assert(#removed_entities == 2, 'Expected spawn_entity to trigger purge')
 
-local test_self = { object = { remove = function() table.insert(removed_entities, 'self_removed') end } }
+local test_self = {
+    object = {
+        remove = function() table.insert(removed_entities, 'self_removed') end,
+        get_pos = function() return { x = 0, y = 0, z = 0 } end,
+    },
+}
 core.registered_entities['signs_lib:text'].on_activate(test_self)
 assert(removed_entities[#removed_entities] == 'self_removed', 'Expected on_activate to call self.object:remove()')
 _G.mock_objects = nil
@@ -4931,6 +4951,8 @@ print('--- Test 69: Dynamic discovery of inscribed nodes, waypoint title labels,
             is_empty = function(self) return (count or 0) <= 0 or (name or '') == '' end,
             get_name = function(self) return name or '' end,
             get_count = function(self) return count or 0 end,
+            get_short_description = function(self) return nil end,
+            get_description = function(self) return name end,
         }
     end
 
@@ -5941,7 +5963,10 @@ print('--- Test 83: Silent protection checks without chat spam and TTL caching -
                         }
                     end
                     return {}
-                end
+                end,
+                get_lists = function(self)
+                    return { main = self:get_list('main') }
+                end,
             }
         end,
         get_string = function(self, k) return '' end,
@@ -6350,6 +6375,8 @@ print('--- Test 87: Immediate chest inventory quickview update on inventory acti
             get_name = function() return name end,
             get_count = function() return count end,
             is_empty = function() return (count == 0 or name == '') end,
+            get_short_description = function() return nil end,
+            get_description = function() return name end,
             to_string = function() return name .. ' ' .. count end,
         }
     end
