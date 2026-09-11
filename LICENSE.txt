@@ -477,5 +477,4 @@ GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later), by SaKeL
 
 **CC-BY-SA-4.0, by SaKeL**
 
-- poster.jpg
 - screenshot.png
