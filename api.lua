@@ -1042,6 +1042,95 @@ function waysigns.get_quickview_dock_metrics(w, num_items)
     return cols, rows, slot_size, icon_size, slot_spacing, bottom_margin, total_grid_h
 end
 
+---Compute screen-aware HUD text line metrics (line height, line spacing, and font bounds)
+---Guarantees strictly positive spacing between lines to prevent text overlapping across all screen resolutions
+---@param player ObjectRef Target player
+---@param hud_scale number Effective HUD scale factor
+---@param screen_w number|nil Screen width in pixels
+---@param screen_h number|nil Screen height in pixels
+---@param is_waypoint boolean|nil Whether rendering in 3D waypoint overlay mode
+---@param has_quickview_items boolean|nil Whether sign has quickview container items
+---@param content_lines number|nil Number of text lines on current page
+---@return number line_height Total baseline-to-baseline line height in screen pixels
+---@return number line_spacing Positive space/gap between lines in screen pixels
+---@return number font_h Estimated font glyph height on screen in pixels
+function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, is_waypoint, has_quickview_items, content_lines)
+    local real_hud_scaling = nil
+    local eff_h = screen_h
+    if player then
+        local name = player:get_player_name()
+        local info = core.get_player_window_information(name)
+        if info then
+            if not eff_h then
+                if info.size and info.size.y and info.size.y > 0 then
+                    eff_h = info.size.y
+                elseif info.size and info.size.x and info.size.x > 0 then
+                    eff_h = math.floor(info.size.x * 9 / 16)
+                end
+            end
+            if info.real_hud_scaling and info.real_hud_scaling > 0 then
+                real_hud_scaling = info.real_hud_scaling
+            end
+        end
+    end
+    if not eff_h and screen_w and screen_w > 0 then
+        eff_h = math.floor(screen_w * 9 / 16)
+    end
+
+    local client_scale = (real_hud_scaling and real_hud_scaling > 0) and real_hud_scaling or 1.0
+    local scale = hud_scale or 2.0
+
+    -- 1. Estimate rendered font glyph height on client display
+    local font_h
+    if is_waypoint ~= false then
+        -- 3D Waypoint overlay mode: engine renders text using client GUI font
+        -- Base font glyph height in Luanti is ~20px (FreeType bounds for 16pt font)
+        font_h = math.max(18, math.floor(20 * client_scale + 0.5))
+    else
+        -- 2D screen HUD overlay mode: text size is multiplied by hud_scale
+        font_h = math.max(16, math.floor(16 * scale + 0.5))
+    end
+
+    -- 2. Calculate screen-responsive line spacing (gap between lines)
+    -- On small screens (<= 600p): at least 4-5px to ensure no overlap while saving space
+    -- On Retina / 1080p (>= 1080p): 7-8px for generous, legible breathing room
+    -- On 2K / 4K (> 1200p): scales smoothly up to 14px
+    local base_gap
+    if eff_h then
+        local h_ratio = eff_h / 1080
+        if eff_h <= 600 then
+            base_gap = 4
+        elseif eff_h <= 768 then
+            base_gap = 5
+        elseif eff_h <= 1200 then
+            base_gap = math.max(6, math.floor(8 * h_ratio + 0.5))
+        else
+            base_gap = math.max(8, math.floor(8 * h_ratio + 0.5))
+        end
+    else
+        -- Fallback when screen height is unknown: scale with hud_scale
+        base_gap = math.max(4, math.floor(2.0 + 3.0 * scale))
+    end
+
+    local line_spacing
+    if is_waypoint ~= false then
+        line_spacing = math.max(4, math.floor(base_gap * client_scale + 0.5))
+    else
+        line_spacing = math.max(4, math.floor(base_gap * (scale / 2.0) + 0.5))
+    end
+
+    local line_height = font_h + line_spacing
+
+    -- If displaying quickview dock with 5 lines of text on a square plaque,
+    -- clamp line_height slightly (e.g. max 25-26px) so 5 lines fit above the dock
+    if has_quickview_items and content_lines and content_lines >= 5 then
+        line_height = math.min(line_height, math.max(22, math.floor(25 * client_scale + 0.5)))
+        line_spacing = math.max(4, line_height - font_h)
+    end
+
+    return line_height, line_spacing, font_h
+end
+
 ---Create or retrieve cached dynamic background texture matching sign plaque
 ---@param base_tile string|nil Base texture name
 ---@param width integer Plaque width in pixels
@@ -1371,7 +1460,7 @@ function waysigns.render_hud(player, state)
 
     local lines = pages[page_idx] or { '' }
     local total_pages = #pages
-    local line_height = math.floor(18 + 2 * math.min(1.5, hud_scale))
+    local is_waypoint = (waysigns.settings.display_mode == 'waypoint')
     local padding_v = math.floor(18 * hud_scale)
     local padding_h = math.floor(24 * hud_scale)
     local char_width = 8.5 * hud_scale
@@ -1387,6 +1476,13 @@ function waysigns.render_hud(player, state)
         qv_b_margin = b_margin
         qv_grid_h = grid_h
     end
+
+    local line_height, line_spacing, font_h = waysigns.calculate_line_metrics(
+        player, hud_scale, screen_w, screen_h, is_waypoint, has_quickview_items, #lines
+    )
+    state.rendered_line_height = line_height
+    state.rendered_line_spacing = line_spacing
+    state.rendered_font_height = font_h
 
     -- Content required space
     local max_line_len = (sign_data.wrapped and sign_data.wrapped.max_line_len) or 12
@@ -1522,7 +1618,6 @@ function waysigns.render_hud(player, state)
         sign_data.quickview_items
     )
 
-    local is_waypoint = (waysigns.settings.display_mode == 'waypoint')
     local world_pos = state.sign_face_pos or state.current_sign_pos
     local overlay_y = (sign_data.is_infotext and waysigns.settings.infotext_overlay_pos_y)
         or waysigns.settings.overlay_pos_y

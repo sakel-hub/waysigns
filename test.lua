@@ -6606,10 +6606,12 @@ print('--- Test 88: Square Aspect Ratio on Quickview Nodes & Containment of 5 Li
     assert(line5_y + 8 < grid_top_offset,
         string.format('Line 5 (y=%d) must not collide with quickview dock (dock_top=%d)', line5_y, grid_top_offset))
 
-    -- Check snug line height: distance between lines should be <= 22px
+    -- Check screen-aware snug line height and positive line spacing: lines must never overlap
     local line_spacing = pstate.rendered_line_offsets[2] - pstate.rendered_line_offsets[1]
-    assert(line_spacing <= 22,
-        string.format('Line spacing should be snug (~21px), got: %d px', line_spacing))
+    assert(line_spacing >= 22 and line_spacing <= 26,
+        string.format('Line spacing should be snug and positive (~24-25px), got: %d px', line_spacing))
+    assert(pstate.rendered_line_spacing and pstate.rendered_line_spacing >= 4,
+        string.format('Space between lines must be strictly positive (>=4px), got: %s', tostring(pstate.rendered_line_spacing)))
 
     -- 2B. Test: INSCRIBED node WITHOUT quickview items (0 items)
     waysigns.extract_node_inventory = function(p, node, nmeta, plr)
@@ -6645,7 +6647,140 @@ print('--- Test 88: Square Aspect Ratio on Quickview Nodes & Containment of 5 Li
     print('PASS Test 88')
 end)()
 
-print('================ ALL 88 UNIT TESTS PASSED ================')
+print('--- Test 89: Screen-Aware Line Spacing & Zero Text Overlap on Retina and Small Screens ---')
+;(function()
+    local player = {
+        get_player_name = function() return 'retina_tester' end,
+        is_player = function() return true end,
+        get_pos = function() return { x = 0, y = 10, z = 0 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_player_control = function() return {} end,
+        get_wielded_item = function() return { get_name = function() return '' end } end,
+        hud_elements = {},
+        hud_add = function(self, def)
+            local id = #self.hud_elements + 1
+            self.hud_elements[id] = def
+            return id
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                self.hud_elements[id][stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+        end,
+    }
+
+    local orig_get_info = core.get_player_window_information
+
+    -- 1. Retina display 1728 x 1117 (MacBook Pro Retina screen)
+    core.get_player_window_information = function(name)
+        if name == 'retina_tester' then
+            return {
+                size = { x = 1728, y = 1117 },
+                real_hud_scaling = 1.0,
+                real_gui_scaling = 1.0,
+            }
+        end
+        return nil
+    end
+
+    local text_4lines = "The Sunstone of Wayfarer's\nHaven - Aligning celestial\npaths and sky currents across\nthe floating isles."
+    local wrap_res = waysigns.wrap_text(text_4lines, 30, 5, 0x000000)
+    assert(#wrap_res.pages == 1, 'Should fit in 1 page')
+    assert(#wrap_res.pages[1] == 4, 'Must have 4 lines')
+
+    local sign_data_retina = {
+        wrapped = wrap_res,
+        aspect_ratio = 1.40,
+        text_color = 0x000000,
+        base_tile = 'default_gold_block.png',
+        is_metal = true,
+    }
+
+    local pstate = waysigns.get_or_create_player_state(player)
+    pstate.current_sign_data = sign_data_retina
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.settings.display_mode = 'waypoint'
+    waysigns.render_hud(player, pstate)
+
+    -- Check that rendered line metrics exist and are positive
+    assert(pstate.rendered_line_height and pstate.rendered_line_height >= 26,
+        'Retina line height must be >= 26px (was 21px), got: ' .. tostring(pstate.rendered_line_height))
+    assert(pstate.rendered_line_spacing and pstate.rendered_line_spacing >= 6,
+        'Retina line spacing must be positive (>= 6px), got: ' .. tostring(pstate.rendered_line_spacing))
+
+    -- Verify distance between all adjacent lines is strictly positive and >= 26px
+    for i = 1, #pstate.rendered_line_offsets - 1 do
+        local delta = pstate.rendered_line_offsets[i + 1] - pstate.rendered_line_offsets[i]
+        assert(delta == pstate.rendered_line_height, 'Delta between lines must equal line_height')
+        local gap = delta - (pstate.rendered_font_height or 20)
+        assert(gap > 0, string.format('Space between line %d and %d must be positive (got %d px)', i, i + 1, gap))
+    end
+
+    -- 2. Compact screen 800 x 600
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 600 }, real_hud_scaling = 1.0 }
+    end
+    waysigns.remove_all_huds(player)
+    pstate = waysigns.get_or_create_player_state(player)
+    pstate.current_sign_data = sign_data_retina
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(player, pstate)
+
+    assert(pstate.rendered_line_spacing and pstate.rendered_line_spacing >= 4,
+        'Compact 800x600 line spacing must be >= 4px, got: ' .. tostring(pstate.rendered_line_spacing))
+    assert(pstate.rendered_line_height and pstate.rendered_line_height >= 22,
+        'Compact 800x600 line height must be >= 22px, got: ' .. tostring(pstate.rendered_line_height))
+    local comp_delta = pstate.rendered_line_offsets[2] - pstate.rendered_line_offsets[1]
+    assert(comp_delta >= 22, 'Delta on 800x600 must prevent line collision')
+
+    -- 3. Small handheld screen 800 x 480
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 480 }, real_hud_scaling = 1.0 }
+    end
+    waysigns.remove_all_huds(player)
+    pstate = waysigns.get_or_create_player_state(player)
+    pstate.current_sign_data = sign_data_retina
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(player, pstate)
+
+    assert(pstate.rendered_line_spacing and pstate.rendered_line_spacing >= 4,
+        'Handheld 800x480 line spacing must be >= 4px, got: ' .. tostring(pstate.rendered_line_spacing))
+    assert(pstate.rendered_line_height and pstate.rendered_line_height >= 22,
+        'Handheld 800x480 line height must be >= 22px, got: ' .. tostring(pstate.rendered_line_height))
+
+    -- 4. High-DPI scaling (real_hud_scaling = 1.5)
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.5 }
+    end
+    waysigns.remove_all_huds(player)
+    pstate = waysigns.get_or_create_player_state(player)
+    pstate.current_sign_data = sign_data_retina
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(player, pstate)
+
+    assert(pstate.rendered_line_height and pstate.rendered_line_height >= 36,
+        'High-DPI line height must scale proportionally, got: ' .. tostring(pstate.rendered_line_height))
+    assert(pstate.rendered_line_spacing and pstate.rendered_line_spacing >= 8,
+        'High-DPI line spacing must scale proportionally, got: ' .. tostring(pstate.rendered_line_spacing))
+
+    -- Cleanup
+    waysigns.remove_all_huds(player)
+    core.get_player_window_information = orig_get_info
+    print('PASS Test 89')
+end)()
+
+print('================ ALL 89 UNIT TESTS PASSED ================')
 
 
 
