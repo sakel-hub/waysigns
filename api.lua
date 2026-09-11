@@ -41,6 +41,8 @@
 ---@field last_purged_pos Vector|nil
 ---@field rendered_page integer|nil
 ---@field rendered_scale number|nil
+---@field rendered_badge_x number|nil
+---@field rendered_badge_y number|nil
 
 ---@class WaySignsCachedNode
 ---@field text string
@@ -1131,6 +1133,72 @@ function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, 
     return line_height, line_spacing, font_h
 end
 
+---Calculate screen-aware pagination badge offset positioned in the top-right corner
+---Accounts for engine image_waypoint scaling asymmetry on Retina / High-DPI screens
+---@param player ObjectRef Target player
+---@param board_w number Base plaque width in pixels
+---@param board_h number Base plaque height in pixels
+---@param hud_scale number Effective HUD scale factor
+---@param is_waypoint boolean Whether rendering in 3D waypoint overlay mode
+---@param page_idx number Current page index (1-based)
+---@param total_pages number Total number of pages
+---@return number badge_x Horizontal offset from center in screen pixels
+---@return number badge_y Vertical offset from center in screen pixels
+function waysigns.calculate_pagination_offset(player, board_w, board_h, hud_scale, is_waypoint, page_idx, total_pages)
+    local client_scale = 1.0
+    if player then
+        local name = player:get_player_name()
+        local info = core.get_player_window_information(name)
+        if info and info.real_hud_scaling and info.real_hud_scaling > 0 then
+            client_scale = info.real_hud_scaling
+        end
+    end
+
+    local page_str = string.format('[%d/%d]', page_idx, total_pages)
+    local char_count = #page_str
+
+    local badge_x, badge_y
+    if is_waypoint ~= false then
+        -- In 3D waypoint mode, Luanti renders image_waypoint scaled by client_scale (m_scale_factor),
+        -- whereas waypoint text offsets are applied in unscaled screen pixels without m_scale_factor.
+        -- Therefore, the offset must be projected to the actual rendered screen bounds of the plaque.
+        local half_w_screen = math.floor(board_w * client_scale / 2)
+        local half_h_screen = math.floor(board_h * client_scale / 2)
+
+        local font_h = math.max(18, math.floor(20 * client_scale + 0.5))
+        local char_w = math.max(8, math.floor(9 * client_scale + 0.5))
+        local badge_w = char_count * char_w
+        local half_badge_w = math.floor(badge_w / 2)
+        local half_badge_h = math.floor(font_h / 2)
+
+        local pad_r = math.max(14, math.floor(18 * client_scale + 0.5))
+        local pad_t = math.max(10, math.floor(12 * client_scale + 0.5))
+
+        badge_x = half_w_screen - pad_r - half_badge_w
+        badge_y = -half_h_screen + pad_t + half_badge_h
+    else
+        -- In 2D screen overlay mode, Luanti's C++ engine multiplies both image and text offset
+        -- by m_scale_factor, so coordinates remain in base HUD units.
+        local half_w = math.floor(board_w / 2)
+        local half_h = math.floor(board_h / 2)
+
+        local scale = hud_scale or 2.0
+        local font_h = math.max(14, math.floor(16 * scale * 0.80 + 0.5))
+        local char_w = math.max(6, math.floor(8.5 * scale * 0.80))
+        local badge_w = char_count * char_w
+        local half_badge_w = math.floor(badge_w / 2)
+        local half_badge_h = math.floor(font_h / 2)
+
+        local pad_r = math.max(12, math.floor(16 * scale + 0.5))
+        local pad_t = math.max(8, math.floor(10 * scale + 0.5))
+
+        badge_x = half_w - pad_r - half_badge_w
+        badge_y = -half_h + pad_t + half_badge_h
+    end
+
+    return badge_x, badge_y
+end
+
 ---Create or retrieve cached dynamic background texture matching sign plaque
 ---@param base_tile string|nil Base texture name
 ---@param width integer Plaque width in pixels
@@ -1291,6 +1359,8 @@ function waysigns.get_or_create_player_state(player)
             rendered_line_colors = {},
             rendered_line_offsets = {},
             rendered_page_text = nil,
+            rendered_badge_x = nil,
+            rendered_badge_y = nil,
             rendered_bg_texture = nil,
             opacity = 0,
             target_opacity = 0,
@@ -1339,6 +1409,8 @@ function waysigns.remove_all_huds(player)
     state.rendered_line_colors = {}
     state.rendered_line_offsets = {}
     state.rendered_page_text = nil
+    state.rendered_badge_x = nil
+    state.rendered_badge_y = nil
     state.rendered_bg_texture = nil
 
     state.is_visible = false
@@ -1671,14 +1743,8 @@ function waysigns.render_hud(player, state)
         local bottom_limit = grid_top_offset - math.floor(6 * hud_scale)
         local text_area_center = math.floor((top_limit + bottom_limit) / 2)
         start_y = text_area_center - math.floor((#lines - 1) * line_height / 2)
-        if total_pages > 1 then
-            start_y = start_y - math.floor(4 * hud_scale)
-        end
     else
         start_y = -math.floor((#lines - 1) * line_height / 2)
-        if total_pages > 1 then
-            start_y = start_y - math.floor(4 * hud_scale)
-        end
     end
 
     state.rendered_line_texts = state.rendered_line_texts or {}
@@ -1783,8 +1849,9 @@ function waysigns.render_hud(player, state)
 
     -- 3. Page indicator for multi-page signs (placed in top-right header badge)
     if total_pages > 1 then
-        local badge_x = math.floor(board_w / 2) - math.floor(22 * hud_scale)
-        local badge_y = -math.floor(board_h / 2) + math.floor(12 * hud_scale)
+        local badge_x, badge_y = waysigns.calculate_pagination_offset(
+            player, board_w, board_h, hud_scale, is_waypoint, page_idx, total_pages
+        )
         local page_str = string.format('[%d/%d]', page_idx, total_pages)
         local pr_base = is_light_bg and 60 or 220
         local pg_base = is_light_bg and 60 or 220
@@ -1819,6 +1886,8 @@ function waysigns.render_hud(player, state)
                 })
             end
             state.rendered_page_text = display_page
+            state.rendered_badge_x = badge_x
+            state.rendered_badge_y = badge_y
         else
             if state.rendered_page_text ~= display_page then
                 if is_waypoint then
@@ -1828,9 +1897,13 @@ function waysigns.render_hud(player, state)
                 end
                 state.rendered_page_text = display_page
             end
+            if state.rendered_badge_x ~= badge_x or state.rendered_badge_y ~= badge_y then
+                player:hud_change(state.hud_page_id, 'offset', { x = badge_x, y = badge_y })
+                state.rendered_badge_x = badge_x
+                state.rendered_badge_y = badge_y
+            end
             if page_changed then
                 player:hud_change(state.hud_page_id, 'number', page_color)
-                player:hud_change(state.hud_page_id, 'offset', { x = badge_x, y = badge_y })
                 if not is_waypoint then
                     player:hud_change(state.hud_page_id, 'size', { x = math.max(0.8, hud_scale * 0.80) })
                     player:hud_change(state.hud_page_id, 'position', { x = 0.5, y = overlay_y })
@@ -1841,6 +1914,8 @@ function waysigns.render_hud(player, state)
         player:hud_remove(state.hud_page_id)
         state.hud_page_id = nil
         state.rendered_page_text = nil
+        state.rendered_badge_x = nil
+        state.rendered_badge_y = nil
     end
 
     state.rendered_page = page_idx

@@ -6780,7 +6780,160 @@ print('--- Test 89: Screen-Aware Line Spacing & Zero Text Overlap on Retina and 
     print('PASS Test 89')
 end)()
 
-print('================ ALL 89 UNIT TESTS PASSED ================')
+;(function()
+    print('--- Test 90: Screen-Aware Pagination Badge Positioning Across Screen Resolutions and High-DPI Displays ---')
+
+    local mock_hud_id_seq = 4000
+    local test90_player = {
+        hud_elements = {},
+        get_player_name = function() return 'pagination_tester' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        hud_add = function(self, def)
+            mock_hud_id_seq = mock_hud_id_seq + 1
+            self.hud_elements[mock_hud_id_seq] = {
+                type = def.type,
+                name = def.name,
+                text = def.text,
+                offset = { x = def.offset.x, y = def.offset.y },
+                alignment = def.alignment,
+                number = def.number,
+                size = def.size,
+                position = def.position,
+            }
+            return mock_hud_id_seq
+        end,
+        hud_change = function(self, id, stat, val)
+            if self.hud_elements[id] then
+                if stat == 'offset' then
+                    self.hud_elements[id].offset = { x = val.x, y = val.y }
+                else
+                    self.hud_elements[id][stat] = val
+                end
+            end
+        end,
+        hud_remove = function(self, id)
+            self.hud_elements[id] = nil
+        end,
+    }
+
+    local orig_get_info = core.get_player_window_information
+
+    -- 1. Direct unit tests for waysigns.calculate_pagination_offset
+    -- 1A: Retina MacBook (1728x1117, real_hud_scaling = 2.0, board 320x320)
+    core.get_player_window_information = function()
+        return { size = { x = 1728, y = 1117 }, real_hud_scaling = 2.0 }
+    end
+    local rx, ry = waysigns.calculate_pagination_offset(test90_player, 320, 320, 2.0, true, 1, 2)
+    assert(rx == 239, 'Retina badge_x must be 239 (was previously offset to 116!), got: ' .. tostring(rx))
+    assert(ry == -276, 'Retina badge_y must be -276 (was previously offset to -136!), got: ' .. tostring(ry))
+
+    -- 1B: Standard 1080p desktop (1920x1080, real_hud_scaling = 1.0, board 320x320)
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.0 }
+    end
+    local d1080_x, d1080_y = waysigns.calculate_pagination_offset(test90_player, 320, 320, 2.0, true, 1, 2)
+    assert(d1080_x == 120, '1080p desktop badge_x must be 120, got: ' .. tostring(d1080_x))
+    assert(d1080_y == -138, '1080p desktop badge_y must be -138, got: ' .. tostring(d1080_y))
+
+    -- 1C: Compact window 800x600 (board 256x256, hud_scale 1.6, scale 1.0)
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 600 }, real_hud_scaling = 1.0 }
+    end
+    local c800_x, c800_y = waysigns.calculate_pagination_offset(test90_player, 256, 256, 1.6, true, 1, 2)
+    assert(c800_x == 88, '800x600 badge_x must be 88, got: ' .. tostring(c800_x))
+    assert(c800_y == -106, '800x600 badge_y must be -106, got: ' .. tostring(c800_y))
+
+    -- 1D: Handheld 800x480 (board 224x224, hud_scale 1.4, scale 1.0)
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 480 }, real_hud_scaling = 1.0 }
+    end
+    local m800_x, m800_y = waysigns.calculate_pagination_offset(test90_player, 224, 224, 1.4, true, 1, 2)
+    assert(m800_x == 72, '800x480 badge_x must be 72, got: ' .. tostring(m800_x))
+    assert(m800_y == -90, '800x480 badge_y must be -90, got: ' .. tostring(m800_y))
+
+    -- 1E: 2D Screen Overlay Mode (is_waypoint = false)
+    local ov_x, ov_y = waysigns.calculate_pagination_offset(test90_player, 320, 320, 2.0, false, 1, 2)
+    assert(ov_x == 96, '2D Overlay badge_x must be 96, got: ' .. tostring(ov_x))
+    assert(ov_y == -127, '2D Overlay badge_y must be -127, got: ' .. tostring(ov_y))
+
+    -- 1F: Multi-digit page indicator [10/12] on Retina
+    core.get_player_window_information = function()
+        return { size = { x = 1728, y = 1117 }, real_hud_scaling = 2.0 }
+    end
+    local m_x, m_y = waysigns.calculate_pagination_offset(test90_player, 320, 320, 2.0, true, 10, 12)
+    assert(m_x == 221, 'Multi-digit badge_x must account for 7 characters (221), got: ' .. tostring(m_x))
+    assert(m_y == -276, 'Multi-digit badge_y must remain -276, got: ' .. tostring(m_y))
+
+    -- 2. Full render_hud integration test replicating user screenshot
+    -- Multi-page container quickview with 4 items and 5 lines of text
+    local qv_items = {
+        { name = 'default:torch', count = 1 },
+        { name = 'default:sword_steel', count = 1 },
+        { name = 'default:steel_ingot', count = 1 },
+        { name = 'default:pick_steel', count = 1 },
+    }
+    local multi_text = "Wayfarer's Cache - Take what provisions you need for your voyage.\nWayfarer's Supply Cache - Fresh provisions for sky\nPage 2 extra text content"
+    local wrap_res = waysigns.wrap_text(multi_text, 30, 5, 0xFFCC00)
+    assert(#wrap_res.pages >= 2, 'Must have at least 2 pages for pagination testing')
+
+    local sign_data = {
+        wrapped = wrap_res,
+        aspect_ratio = 1.0,
+        text_color = 0xFFCC00,
+        base_tile = 'default_wood.png',
+        quickview_items = qv_items,
+        is_infotext = true,
+    }
+
+    core.get_player_window_information = function()
+        return { size = { x = 1728, y = 1117 }, real_hud_scaling = 2.0 }
+    end
+
+    waysigns.settings.display_mode = 'waypoint'
+    waysigns.remove_all_huds(test90_player)
+
+    local pstate = waysigns.get_or_create_player_state(test90_player)
+    pstate.current_sign_data = sign_data
+    pstate.current_page = 1
+    pstate.opacity = 1.0
+    pstate.target_opacity = 1.0
+    waysigns.render_hud(test90_player, pstate)
+
+    -- Verify pagination HUD element exists
+    assert(pstate.hud_page_id ~= nil, 'hud_page_id must be created for multi-page sign')
+    local page_hud = test90_player.hud_elements[pstate.hud_page_id]
+    assert(page_hud ~= nil, 'Page indicator HUD element must be registered')
+    assert(page_hud.name == '[1/2]', 'Page indicator text must be [1/2], got: ' .. tostring(page_hud.name))
+
+    -- Verify badge offset on Retina display: must be positioned in top-right corner
+    assert(page_hud.offset.x >= 230, 'Page badge offset.x must be >= 230 on Retina, got: ' .. tostring(page_hud.offset.x))
+    assert(page_hud.offset.y <= -260, 'Page badge offset.y must be <= -260 on Retina, got: ' .. tostring(page_hud.offset.y))
+
+    -- Verify vertical clearance between Line 1 and the badge
+    local line1_y = pstate.rendered_line_offsets[1]
+    local badge_bottom = page_hud.offset.y + 20 -- estimated half font height
+    local clearance = line1_y - badge_bottom
+    assert(clearance > 80,
+        string.format('Vertical clearance between Line 1 (y=%d) and badge (bottom=%d) must be > 80px (got %d px)',
+            line1_y, badge_bottom, clearance))
+
+    -- 3. Dynamic resolution adaptation via hud_change
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 600 }, real_hud_scaling = 1.0 }
+    end
+    waysigns.render_hud(test90_player, pstate)
+    assert(pstate.rendered_badge_x == 88, 'rendered_badge_x must adapt to 88 on 800x600, got: ' .. tostring(pstate.rendered_badge_x))
+    assert(pstate.rendered_badge_y == -106, 'rendered_badge_y must adapt to -106 on 800x600, got: ' .. tostring(pstate.rendered_badge_y))
+    assert(page_hud.offset.x == 88, 'page_hud offset.x must be updated to 88 via hud_change')
+    assert(page_hud.offset.y == -106, 'page_hud offset.y must be updated to -106 via hud_change')
+
+    -- Cleanup
+    waysigns.remove_all_huds(test90_player)
+    core.get_player_window_information = orig_get_info
+    print('PASS Test 90')
+end)()
+
+print('================ ALL 90 UNIT TESTS PASSED ================')
 
 
 
