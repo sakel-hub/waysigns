@@ -2086,7 +2086,7 @@ function waysigns.update_marker_waypoints(player, state, elapsed)
     local dead_positions = nil
     local max_dist_sq = sense_range * sense_range
 
-    -- 1. Check registered inscribed nodes within local mapblocks
+    -- Check registered inscribed nodes within local mapblocks
     local min_bx = math.floor((player_pos.x - sense_range) / 16)
     local max_bx = math.floor((player_pos.x + sense_range) / 16)
     local min_by = math.floor((player_pos.y - sense_range) / 16)
@@ -2155,34 +2155,32 @@ function waysigns.update_marker_waypoints(player, state, elapsed)
         waysigns.save_inscribed_registry()
     end
 
-    -- 2. Check nearby inscribed entities (if entity inspection enabled)
-    if waysigns.settings.enable_entity_inspection then
-        local nearby_objs = core.get_objects_inside_radius(player_pos, sense_range)
-        for _, obj in ipairs(nearby_objs) do
-            if obj and not obj:is_player() then
-                local ent_data = waysigns.get_entity_inscription and waysigns.get_entity_inscription(obj)
-                if ent_data and ent_data.text and ent_data.text ~= '' then
-                    local obj_pos = obj:get_pos()
-                    if obj_pos then
-                        local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
-                        if not is_pointed then
-                            local dx = obj_pos.x - eye_pos.x
-                            local dy = (obj_pos.y + 0.75) - eye_pos.y
-                            local dz = obj_pos.z - eye_pos.z
-                            local dist_sq = dx * dx + dy * dy + dz * dz
-                            if dist_sq <= max_dist_sq then
-                                local dot_unnorm = look_dir.x * dx + look_dir.y * dy + look_dir.z * dz
-                                if dot_unnorm > 0 then
-                                    local dist = math.sqrt(dist_sq)
-                                    local ent_key = 'ent_' .. tostring(obj)
-                                    table.insert(candidates, {
-                                        key = ent_key,
-                                        pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z },
-                                        dist = dist,
-                                        is_entity = true,
-                                        author = ent_data.author or '',
-                                    })
-                                end
+    -- Check nearby inscribed entities
+    local nearby_objs = core.get_objects_inside_radius(player_pos, sense_range)
+    for _, obj in ipairs(nearby_objs) do
+        if obj and not obj:is_player() then
+            local ent_data = waysigns.get_entity_inscription and waysigns.get_entity_inscription(obj)
+            if ent_data and ent_data.text and ent_data.text ~= '' then
+                local obj_pos = obj:get_pos()
+                if obj_pos then
+                    local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
+                    if not is_pointed then
+                        local dx = obj_pos.x - eye_pos.x
+                        local dy = (obj_pos.y + 0.75) - eye_pos.y
+                        local dz = obj_pos.z - eye_pos.z
+                        local dist_sq = dx * dx + dy * dy + dz * dz
+                        if dist_sq <= max_dist_sq then
+                            local dot_unnorm = look_dir.x * dx + look_dir.y * dy + look_dir.z * dz
+                            if dot_unnorm > 0 then
+                                local dist = math.sqrt(dist_sq)
+                                local ent_key = 'ent_' .. tostring(obj)
+                                table.insert(candidates, {
+                                    key = ent_key,
+                                    pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z },
+                                    dist = dist,
+                                    is_entity = true,
+                                    author = ent_data.author or '',
+                                })
                             end
                         end
                     end
@@ -2191,12 +2189,12 @@ function waysigns.update_marker_waypoints(player, state, elapsed)
         end
     end
 
-    -- 3. Sort in-sight targets by distance ascending
+    -- Sort in-sight targets by distance ascending
     table.sort(candidates, function(a, b)
         return a.dist < b.dist
     end)
 
-    -- 4. Deferred line-of-sight raycast: only test closest candidates until max_waypoints visible targets are found
+    -- Deferred line-of-sight raycast: only test closest candidates until max_waypoints visible targets are found
     local visible_candidates = {}
     for _, cand in ipairs(candidates) do
         local los = core.line_of_sight(eye_pos, cand.pos)

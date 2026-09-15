@@ -457,10 +457,6 @@ function waysigns.on_use_marker(itemstack, user, pointed_thing)
         waysigns.show_node_inscription_formspec(user, pos)
         return itemstack
     elseif pointed_thing.type == 'object' then
-        if not waysigns.settings.enable_entity_inspection then
-            return itemstack
-        end
-
         local obj = pointed_thing.ref
         if not obj or not obj:is_valid() or obj:is_player() then
             return itemstack
