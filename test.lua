@@ -2883,21 +2883,26 @@ assert((function()
     local omni_state = waysigns.get_or_create_player_state(p_omni)
     omni_state.check_timer = 0.06
 
-    -- Must show HUD even from back face
+    -- By default (enable_node_infotext = false), infotext node HUD must NOT show
+    assert(waysigns.settings.enable_node_infotext == false, 'Default enable_node_infotext must be false')
     waysigns.update_player(p_omni, 0.06)
-    assert(omni_state.is_visible == true, 'Infotext node HUD must show from any face (omnidirectional)')
+    assert(omni_state.is_visible == false, 'Infotext HUD must not show when enable_node_infotext is false by default')
+
+    -- When enable_node_infotext = true, must show HUD even from back face (omnidirectional)
+    waysigns.settings.enable_node_infotext = true
+    omni_state.check_timer = 0.06
+    waysigns.update_player(p_omni, 0.06)
+    assert(omni_state.is_visible == true, 'Infotext node HUD must show from any face when enabled (omnidirectional)')
     assert(omni_state.current_sign_data ~= nil and omni_state.current_sign_data.is_infotext == true, 'Active data must be infotext')
     assert(omni_state.current_sign_data.raw_text == 'Community Resources', 'Extracted text must match')
 
-    -- 2. Verify waysigns_enable_node_infotext = false disables detection
+    -- Reset setting to default false
     waysigns.settings.enable_node_infotext = false
     waysigns.remove_all_huds(p_omni)
     omni_state.check_timer = 0.06
     waysigns.update_player(p_omni, 0.06)
-    assert(omni_state.is_visible == false, 'Infotext HUD must not show when enable_node_infotext is false')
+    assert(omni_state.is_visible == false, 'Infotext HUD must not show after resetting enable_node_infotext to false')
 
-    -- Restore setting
-    waysigns.settings.enable_node_infotext = true
     waysigns.remove_all_huds(p_omni)
     return true
 end)())
@@ -6346,6 +6351,8 @@ end)()
 
 print('--- Test 87: Immediate chest inventory quickview update on inventory action ---')
 ;(function()
+    local orig_enable_infotext = waysigns.settings.enable_node_infotext
+    waysigns.settings.enable_node_infotext = true
     local chest_pos = { x = 900, y = 5, z = 900 }
     local chest_node = { name = 'default:chest', param2 = 0 }
     local orig_get_node_or_nil = core.get_node_or_nil
@@ -6479,6 +6486,7 @@ print('--- Test 87: Immediate chest inventory quickview update on inventory acti
 
     -- Cleanup
     waysigns.remove_all_huds(player)
+    waysigns.settings.enable_node_infotext = orig_enable_infotext
     _G.mock_players = {}
     core.get_node_or_nil = orig_get_node_or_nil
     core.raycast = orig_raycast
@@ -7047,7 +7055,235 @@ end)()
     print('PASS Test 91')
 end)()
 
-print('================ ALL 91 UNIT TESTS PASSED ================')
+print('--- Test 92: Disabled infotext and entity HUDs by default & preserved sign/marker functionality ---')
+;(function()
+    -- Verification of default settings
+    assert(waysigns.settings.enable_node_infotext == false, 'waysigns.settings.enable_node_infotext must default to false')
+    assert(waysigns.settings.enable_entity_inspection == false, 'waysigns.settings.enable_entity_inspection must default to false')
+
+    local p_test = {
+        name = 'tester92',
+        pos = { x = 0, y = 1, z = 0 },
+        look_dir = { x = 0, y = 0, z = 1 },
+        wielded = ItemStack(''),
+        get_player_name = function(self) return self.name end,
+        is_player = function(self) return true end,
+        get_pos = function(self) return self.pos end,
+        get_look_dir = function(self) return self.look_dir end,
+        get_properties = function(self) return { eye_height = 1.625 } end,
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, stack) self.wielded = stack end,
+        hud_add = function(self, def) return 1 end,
+        hud_remove = function(self, id) end,
+        hud_change = function(self, id, stat, val) end,
+    }
+
+    local orig_raycast = core.raycast
+    local orig_get_node = core.get_node
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_get_objects = core.get_objects_inside_radius
+    local orig_show_formspec = core.show_formspec
+
+    local mock_target_type = 'node'
+    local mock_target_pos = { x = 0, y = 1, z = 3 }
+    local mock_target_node = { name = 'default:sign_wall_wood', param2 = 4 }
+    local mock_target_obj = nil
+
+    core.raycast = function(_, _, objects, _)
+        local done = false
+        return function()
+            if not done then
+                done = true
+                if mock_target_type == 'object' and objects and mock_target_obj then
+                    return {
+                        type = 'object',
+                        ref = mock_target_obj,
+                        intersection_normal = { x = 0, y = 0, z = -1 },
+                        intersection_point = mock_target_pos,
+                    }
+                elseif mock_target_type == 'node' then
+                    return {
+                        type = 'node',
+                        under = mock_target_pos,
+                        intersection_normal = { x = 0, y = 0, z = -1 },
+                        intersection_point = mock_target_pos,
+                    }
+                end
+            end
+            return nil
+        end
+    end
+
+    core.get_node_or_nil = function(p)
+        if p and p.x == mock_target_pos.x and p.y == mock_target_pos.y and p.z == mock_target_pos.z then
+            return mock_target_node
+        end
+        return { name = 'air', param2 = 0 }
+    end
+    core.get_node = core.get_node_or_nil
+
+    local last_shown_formspec = nil
+    core.show_formspec = function(pname, fname, fspec)
+        last_shown_formspec = { player_name = pname, formname = fname, formspec = fspec }
+    end
+
+    local pstate = waysigns.get_or_create_player_state(p_test)
+    pstate.check_timer = waysigns.settings.check_interval
+
+    -- Dedicated signs functionality is completely unaffected:
+    -- Dedicated sign with standard text field
+    mock_target_type = 'node'
+    mock_target_node = { name = 'default:sign_wall_wood', param2 = 4 }
+    local sign_meta1 = core.get_meta(mock_target_pos)
+    sign_meta1:set_string('text', 'North Harbor')
+    sign_meta1:set_string('infotext', '')
+    sign_meta1:set_string('waysigns_text', '')
+
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == true, 'Sign with standard text must display HUD waypoint')
+    assert(pstate.current_sign_data ~= nil and pstate.current_sign_data.raw_text == 'North Harbor', 'Sign text must match')
+    waysigns.remove_all_huds(p_test)
+
+    -- Dedicated sign where text is stored exclusively in infotext (e.g. Luanti Game default sign)
+    sign_meta1:set_string('text', '')
+    sign_meta1:set_string('infotext', '"Market Square"')
+    sign_meta1:set_string('waysigns_text', '')
+    waysigns.node_cache = {}
+
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == true, 'Sign using infotext metadata must display HUD waypoint even when enable_node_infotext is false')
+    assert(pstate.current_sign_data ~= nil and pstate.current_sign_data.raw_text == 'Market Square', 'Sign text from infotext must match')
+    waysigns.remove_all_huds(p_test)
+
+    -- Non-sign nodes with infotext do NOT show HUD by default:
+    mock_target_node = { name = 'default:chest', param2 = 0 }
+    local chest_meta = core.get_meta(mock_target_pos)
+    chest_meta:set_string('text', '')
+    chest_meta:set_string('infotext', 'Public Storage Chest')
+    chest_meta:set_string('waysigns_text', '')
+    waysigns.node_cache = {}
+
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == false, 'Chest with infotext must NOT display HUD waypoint when enable_node_infotext is false by default')
+
+    -- Entities do NOT show HUD by default:
+    mock_target_type = 'object'
+    local entity_mock = {
+        _is_valid = true,
+        _pos = mock_target_pos,
+        infotext = 'Guard Patrol',
+        is_player = function() return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function(self) return { infotext = self.infotext } end,
+        set_properties = function(self, props)
+            if props and props.infotext ~= nil then
+                self.infotext = props.infotext
+            end
+        end,
+        get_luaentity = function() return { name = 'mobs:guard' } end,
+    }
+    mock_target_obj = entity_mock
+
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == false, 'Entity must NOT display HUD waypoint when enable_entity_inspection is false by default')
+
+    -- Marker tool functionality:
+    local marker_item = ItemStack('waysigns:marker')
+    p_test.wielded = marker_item
+
+    -- Marker on node opens inscription formspec
+    mock_target_type = 'node'
+    mock_target_node = { name = 'default:stone', param2 = 0 }
+    local stone_meta = core.get_meta(mock_target_pos)
+    stone_meta:set_string('waysigns_text', '')
+    stone_meta:set_string('infotext', '')
+    waysigns.node_cache = {}
+    waysigns.on_use_marker(p_test.wielded, p_test, { type = 'node', under = mock_target_pos })
+    assert(last_shown_formspec ~= nil and last_shown_formspec.formname == 'waysigns:inscribe',
+        'Marker on node must open inscription formspec')
+
+    -- Inscribing a node works and shows HUD
+    waysigns.set_node_inscription(mock_target_pos, 'Hidden Passage', 'slate', 'cyan', 'tester92')
+    waysigns.node_cache = {}
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == true, 'Inscribed node must display HUD waypoint')
+    assert(pstate.current_sign_data.raw_text == 'Hidden Passage', 'Inscribed text must match')
+    waysigns.remove_all_huds(p_test)
+
+    -- Marker on entity opens inscription formspec even when enable_entity_inspection is false
+    last_shown_formspec = nil
+    mock_target_type = 'object'
+    waysigns.on_use_marker(p_test.wielded, p_test, { type = 'object', ref = entity_mock })
+    assert(last_shown_formspec ~= nil and last_shown_formspec.formname == 'waysigns:inscribe',
+        'Marker on entity must open inscription formspec even when enable_entity_inspection is false')
+
+    -- Inscribing entity works
+    waysigns.set_entity_inscription(entity_mock, 'Captain of the Guard', 'gold', 'gold', 'tester92')
+    assert(entity_mock.infotext == 'Captain of the Guard', 'Entity infotext property must be updated')
+    assert(waysigns.get_entity_inscription(entity_mock).text == 'Captain of the Guard', 'Entity inscription text must match')
+
+    -- Scribe Sense senses both inscribed nodes and inscribed entities when wielding marker
+    _G.mock_objects = { entity_mock }
+    core.get_objects_inside_radius = function() return { entity_mock } end
+    pstate.marker_waypoints = {}
+    pstate.is_visible = false
+    pstate.current_sign_pos = nil
+
+    waysigns.update_marker_waypoints(p_test, pstate, 0.25)
+    local wp_node = pstate.marker_waypoints[waysigns.pos_to_key(mock_target_pos)]
+    local wp_ent = pstate.marker_waypoints['ent_' .. tostring(entity_mock)]
+    assert(wp_node ~= nil, 'Scribe Sense must detect inscribed node when wielding marker')
+    assert(wp_ent ~= nil, 'Scribe Sense must detect inscribed entity when wielding marker even when enable_entity_inspection is false')
+
+    -- Erasing entity inscription works
+    waysigns.set_entity_inscription(entity_mock, '', 'default', 'white', 'tester92')
+    assert(waysigns.get_entity_inscription(entity_mock) == nil, 'Entity inscription must be cleared after erasing')
+
+    -- Settings toggle verification:
+    -- Enable node infotext
+    waysigns.settings.enable_node_infotext = true
+    mock_target_type = 'node'
+    mock_target_node = { name = 'default:chest', param2 = 0 }
+    chest_meta:set_string('infotext', 'Public Storage Chest')
+    chest_meta:set_string('waysigns_text', '')
+    waysigns.node_cache = {}
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == true, 'Chest must display HUD when enable_node_infotext is toggled to true')
+    waysigns.remove_all_huds(p_test)
+    waysigns.settings.enable_node_infotext = false
+
+    -- Enable entity inspection HUD
+    waysigns.settings.enable_entity_inspection = true
+    mock_target_type = 'object'
+    waysigns.set_entity_inscription(entity_mock, 'Officer on Duty', 'wood', 'white', 'tester92')
+    pstate.check_timer = waysigns.settings.check_interval
+    waysigns.update_player(p_test, 0.05)
+    assert(pstate.is_visible == true, 'Entity must display HUD when enable_entity_inspection is toggled to true')
+    waysigns.remove_all_huds(p_test)
+    waysigns.settings.enable_entity_inspection = false
+
+    -- Cleanup
+    waysigns.set_node_inscription(mock_target_pos, '', 'default', 'white', '')
+    waysigns.set_entity_inscription(entity_mock, '', 'default', 'white', '')
+    waysigns.remove_all_huds(p_test)
+    waysigns.remove_marker_waypoints(p_test, pstate)
+    core.raycast = orig_raycast
+    core.get_node = orig_get_node
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.get_objects_inside_radius = orig_get_objects
+    core.show_formspec = orig_show_formspec
+    _G.mock_objects = nil
+    print('PASS Test 92')
+end)()
+
+print('================ ALL 92 UNIT TESTS PASSED ================')
 
 
 
