@@ -58,7 +58,7 @@ waysigns_contrast_mode (Contrast Mode) enum auto auto,bright_text,preserve
 waysigns_background_darkness (Background Glaze Darkness) float 0.40 0.0 0.8
 
 # Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces, machines).
-waysigns_enable_node_infotext (Enable Node Infotext HUD) bool true
+waysigns_enable_node_infotext (Enable Node Infotext HUD) bool false
 
 # Infotext HUD overlay and typography scaling multiplier for nodes with infotext.
 # Default 2.0 provides clear visibility and proportional quickview sizing.
@@ -91,7 +91,7 @@ waysigns_enable_marker (Enable Inscription Marker Tool) bool true
 waysigns_marker_uses (Marker Uses Before Depletion) int 100 0 1000
 
 # Enable WaySigns HUD inspection and floating waypoints for inscribed entities.
-waysigns_enable_entity_inspection (Enable Entity Inscription Inspection) bool true
+waysigns_enable_entity_inspection (Enable Entity HUD Inspection) bool false
 
 # Maximum characters allowed per inscription when writing with the marker tool.
 waysigns_marker_max_chars (Marker Inscription Max Characters) int 250 10 1000

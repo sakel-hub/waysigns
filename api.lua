@@ -70,7 +70,7 @@ waysigns = {
         show_frame = core.settings:get_bool('waysigns_show_frame', true),
         contrast_mode = core.settings:get('waysigns_contrast_mode') or 'auto',
         background_darkness = tonumber(core.settings:get('waysigns_background_darkness')) or 0.40,
-        enable_node_infotext = core.settings:get_bool('waysigns_enable_node_infotext', true),
+        enable_node_infotext = core.settings:get_bool('waysigns_enable_node_infotext', false),
         infotext_scale = tonumber(core.settings:get('waysigns_infotext_scale')) or 2.0,
         infotext_pos_y_offset = tonumber(core.settings:get('waysigns_infotext_pos_y_offset')) or 0.35,
         infotext_overlay_pos_y = tonumber(core.settings:get('waysigns_infotext_overlay_pos_y')) or 0.38,
@@ -80,7 +80,13 @@ waysigns = {
         quickview_respect_locks = core.settings:get_bool('waysigns_quickview_respect_locks', true),
         enable_marker = core.settings:get_bool('waysigns_enable_marker', true),
         marker_uses = math.max(0, tonumber(core.settings:get('waysigns_marker_uses')) or 100),
-        enable_entity_inspection = core.settings:get_bool('waysigns_enable_entity_inspection', true),
+        enable_entity_inspection = (function()
+            local v = core.settings:get_bool('waysigns_enable_entity_inspection')
+            if v ~= nil then return v end
+            local v_hud = core.settings:get_bool('waysigns_enable_entity_hud')
+            if v_hud ~= nil then return v_hud end
+            return false
+        end)(),
         marker_max_chars = math.max(10, math.min(1000, tonumber(core.settings:get('waysigns_marker_max_chars')) or 250)),
         marker_sense = core.settings:get_bool('waysigns_marker_sense', true),
         marker_sense_range = math.max(2.0, math.min(30.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),

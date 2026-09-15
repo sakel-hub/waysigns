@@ -85,7 +85,7 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_auto_scroll` | `true` | Automatically cycle pages for long texts. |
 | `waysigns_scroll_delay` | `4.0` | Seconds before advancing to the next page. |
 | `waysigns_show_frame` | `true` | Show beveled plaque frame. |
-| `waysigns_enable_node_infotext` | `true` | Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces). |
+| `waysigns_enable_node_infotext` | `false` | Enable WaySigns HUD waypoints for all nodes with infotext (chests, furnaces). |
 | `waysigns_infotext_scale` | `2.0` | HUD overlay and typography scaling multiplier for nodes with infotext. |
 | `waysigns_infotext_pos_y_offset` | `0.35` | Vertical position offset in blocks for node infotext waypoints relative to node center. |
 | `waysigns_infotext_overlay_pos_y` | `0.38` | Vertical screen position for 2D overlay mode for node infotext (`0.38` = upper screen). |
@@ -94,7 +94,7 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_quickview_show_all` | `true` | Display all occupied items in container up to maximum slots in a multi-row grid. |
 | `waysigns_quickview_respect_locks` | `true` | Respect container locks and protection (suppress private inventory contents for non-owners). |
 | `waysigns_enable_marker` | `true` | Enable the Inscription Marker tool (`waysigns:marker`) and craft recipe. |
-| `waysigns_enable_entity_inspection` | `true` | Allow WaySigns raycasting to detect marked entities and display floating waypoints. |
+| `waysigns_enable_entity_inspection` | `false` | Allow WaySigns raycasting to detect marked entities and display floating waypoints. |
 | `waysigns_marker_max_chars` | `250` | Maximum character length allowed for custom marker inscriptions. |
 | `waysigns_marker_sense` | `true` | Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes/entities when wielding the marker tool. |
 | `waysigns_marker_sense_range` | `10.0` | Maximum detection radius in blocks (meters) when holding the marker tool. |
