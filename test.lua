@@ -4566,6 +4566,9 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     waysigns.set_entity_inscription(mock_ent, 'Trader Joe', 'wood', 'gold', 'admin')
     _G.mock_objects = { mock_ent }
 
+    local orig_enable_ent = waysigns.settings.enable_entity_inspection
+    waysigns.settings.enable_entity_inspection = true
+
     local pstate = waysigns.get_or_create_player_state(sense_player)
 
     -- Case 4A: Player wields pickaxe (not marker) -> NO waypoints should be created
@@ -4711,6 +4714,7 @@ print('--- Test 67: Scribe Sense - Marker-Wield Proximity Waypoints ---')
     assert(waysigns.players['sense_tester'] == nil, 'Player state must be nil after on_leaveplayer')
 
     _G.mock_objects = nil
+    waysigns.settings.enable_entity_inspection = orig_enable_ent
     core.raycast = orig_raycast
     core.get_objects_inside_radius = orig_get_objects
     print('PASS Test 67')
@@ -6053,7 +6057,9 @@ end)()
     local orig_los = core.line_of_sight
     local orig_get_objs = core.get_objects_inside_radius
     local orig_setting = waysigns.settings.marker_sense_owner_color
+    local orig_enable_ent = waysigns.settings.enable_entity_inspection
     waysigns.settings.marker_sense_owner_color = true
+    waysigns.settings.enable_entity_inspection = true
 
     core.line_of_sight = function() return true end
 
@@ -6199,6 +6205,7 @@ end)()
     core.line_of_sight = orig_los
     core.get_objects_inside_radius = orig_get_objs
     waysigns.settings.marker_sense_owner_color = orig_setting
+    waysigns.settings.enable_entity_inspection = orig_enable_ent
     waysigns.remove_marker_waypoints(alice_player, pstate)
     print('PASS Test 84')
 end)()
@@ -7228,7 +7235,7 @@ print('--- Test 92: Disabled infotext and entity HUDs by default & preserved sig
     assert(entity_mock.infotext == 'Captain of the Guard', 'Entity infotext property must be updated')
     assert(waysigns.get_entity_inscription(entity_mock).text == 'Captain of the Guard', 'Entity inscription text must match')
 
-    -- Scribe Sense senses both inscribed nodes and inscribed entities when wielding marker
+    -- Scribe Sense: only inscribed nodes (not entities) display waypoints when enable_entity_inspection is false
     _G.mock_objects = { entity_mock }
     core.get_objects_inside_radius = function() return { entity_mock } end
     pstate.marker_waypoints = {}
@@ -7239,7 +7246,50 @@ print('--- Test 92: Disabled infotext and entity HUDs by default & preserved sig
     local wp_node = pstate.marker_waypoints[waysigns.pos_to_key(mock_target_pos)]
     local wp_ent = pstate.marker_waypoints['ent_' .. tostring(entity_mock)]
     assert(wp_node ~= nil, 'Scribe Sense must detect inscribed node when wielding marker')
-    assert(wp_ent ~= nil, 'Scribe Sense must detect inscribed entity when wielding marker even when enable_entity_inspection is false')
+    assert(wp_ent == nil, 'Scribe Sense must NOT detect entity when enable_entity_inspection is false')
+
+    -- Builtin engine entities (e.g. __builtin:item dropped items) must NEVER produce inscriptions or waypoints
+    local builtin_item_mock = {
+        _is_valid = true,
+        _pos = { x = 0, y = 1, z = 2 },
+        infotext = 'default:apple 5',
+        is_player = function() return false end,
+        is_valid = function(self) return self._is_valid end,
+        get_pos = function(self) return self._pos end,
+        get_properties = function(self) return { infotext = self.infotext } end,
+        get_luaentity = function() return { name = '__builtin:item' } end,
+    }
+    assert(waysigns.get_entity_inscription(builtin_item_mock) == nil,
+        '__builtin:item must not return inscription from engine infotext')
+    assert(waysigns.get_entity_inscription_data(builtin_item_mock) == nil,
+        '__builtin:item must not return inscription data from engine infotext')
+
+    -- Marker tool must not open inscription formspec on __builtin:item
+    last_shown_formspec = nil
+    waysigns.on_use_marker(p_test.wielded, p_test, { type = 'object', ref = builtin_item_mock })
+    assert(last_shown_formspec == nil,
+        'Marker on __builtin:item must not open inscription formspec')
+
+    -- Waypoints check with both inscribed entity and builtin item
+    _G.mock_objects = { entity_mock, builtin_item_mock }
+    core.get_objects_inside_radius = function() return { entity_mock, builtin_item_mock } end
+
+    -- Scribe sense with enable_entity_inspection = false: neither entity shows waypoint
+    pstate.marker_waypoints = {}
+    waysigns.update_marker_waypoints(p_test, pstate, 0.25)
+    assert(pstate.marker_waypoints['ent_' .. tostring(builtin_item_mock)] == nil,
+        '__builtin:item must not have marker waypoint when enable_entity_inspection is false')
+    assert(pstate.marker_waypoints['ent_' .. tostring(entity_mock)] == nil,
+        'Inscribed entity must not have marker waypoint when enable_entity_inspection is false')
+
+    -- Scribe sense with enable_entity_inspection = true: inscribed entity shows, but builtin item STILL does not
+    waysigns.settings.enable_entity_inspection = true
+    waysigns.update_marker_waypoints(p_test, pstate, 0.25)
+    assert(pstate.marker_waypoints['ent_' .. tostring(entity_mock)] ~= nil,
+        'Inscribed entity must have marker waypoint when enable_entity_inspection is true')
+    assert(pstate.marker_waypoints['ent_' .. tostring(builtin_item_mock)] == nil,
+        '__builtin:item must NEVER have marker waypoint even when enable_entity_inspection is true')
+    waysigns.settings.enable_entity_inspection = false
 
     -- Erasing entity inscription works
     waysigns.set_entity_inscription(entity_mock, '', 'default', 'white', 'tester92')

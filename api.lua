@@ -2161,32 +2161,34 @@ function waysigns.update_marker_waypoints(player, state, elapsed)
         waysigns.save_inscribed_registry()
     end
 
-    -- Check nearby inscribed entities
-    local nearby_objs = core.get_objects_inside_radius(player_pos, sense_range)
-    for _, obj in ipairs(nearby_objs) do
-        if obj and not obj:is_player() then
-            local ent_data = waysigns.get_entity_inscription and waysigns.get_entity_inscription(obj)
-            if ent_data and ent_data.text and ent_data.text ~= '' then
-                local obj_pos = obj:get_pos()
-                if obj_pos then
-                    local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
-                    if not is_pointed then
-                        local dx = obj_pos.x - eye_pos.x
-                        local dy = (obj_pos.y + 0.75) - eye_pos.y
-                        local dz = obj_pos.z - eye_pos.z
-                        local dist_sq = dx * dx + dy * dy + dz * dz
-                        if dist_sq <= max_dist_sq then
-                            local dot_unnorm = look_dir.x * dx + look_dir.y * dy + look_dir.z * dz
-                            if dot_unnorm > 0 then
-                                local dist = math.sqrt(dist_sq)
-                                local ent_key = 'ent_' .. tostring(obj)
-                                table.insert(candidates, {
-                                    key = ent_key,
-                                    pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z },
-                                    dist = dist,
-                                    is_entity = true,
-                                    author = ent_data.author or '',
-                                })
+    -- Check nearby inscribed entities (only if entity inspection is enabled)
+    if waysigns.settings.enable_entity_inspection then
+        local nearby_objs = core.get_objects_inside_radius(player_pos, sense_range)
+        for _, obj in ipairs(nearby_objs) do
+            if obj and not obj:is_player() then
+                local ent_data = waysigns.get_entity_inscription and waysigns.get_entity_inscription(obj)
+                if ent_data and ent_data.text and ent_data.text ~= '' then
+                    local obj_pos = obj:get_pos()
+                    if obj_pos then
+                        local is_pointed = state.is_visible and state.current_sign_data and state.current_sign_data.obj == obj
+                        if not is_pointed then
+                            local dx = obj_pos.x - eye_pos.x
+                            local dy = (obj_pos.y + 0.75) - eye_pos.y
+                            local dz = obj_pos.z - eye_pos.z
+                            local dist_sq = dx * dx + dy * dy + dz * dz
+                            if dist_sq <= max_dist_sq then
+                                local dot_unnorm = look_dir.x * dx + look_dir.y * dy + look_dir.z * dz
+                                if dot_unnorm > 0 then
+                                    local dist = math.sqrt(dist_sq)
+                                    local ent_key = 'ent_' .. tostring(obj)
+                                    table.insert(candidates, {
+                                        key = ent_key,
+                                        pos = { x = obj_pos.x, y = obj_pos.y + 0.75, z = obj_pos.z },
+                                        dist = dist,
+                                        is_entity = true,
+                                        author = ent_data.author or '',
+                                    })
+                                end
                             end
                         end
                     end
@@ -2676,8 +2678,12 @@ function waysigns.get_entity_inscription(object)
     local lua_ent = object:get_luaentity()
     local text = (lua_ent and lua_ent._waysigns_text) or (type(object) == 'table' and object._waysigns_text) or nil
     if not text or text == '' then
-        local props = object:get_properties()
-        text = props and props.infotext
+        local ename = lua_ent and lua_ent.name
+        if ename ~= '__builtin:item' and ename ~= ':__builtin:item'
+                and ename ~= '__builtin:falling_node' and ename ~= ':__builtin:falling_node' then
+            local props = object:get_properties()
+            text = props and props.infotext
+        end
     end
     if not text or text == '' then return nil end
     return {

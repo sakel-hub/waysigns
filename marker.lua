@@ -399,7 +399,12 @@ end
 function waysigns.show_entity_inscription_formspec(player, object)
     local player_name = player:get_player_name()
     local lua_ent = object:get_luaentity()
-    local name = (lua_ent and lua_ent.name) or 'Entity'
+    local ename = lua_ent and lua_ent.name
+    if ename == '__builtin:item' or ename == ':__builtin:item'
+            or ename == '__builtin:falling_node' or ename == ':__builtin:falling_node' then
+        return
+    end
+    local name = ename or 'Entity'
 
     local current = waysigns.get_entity_inscription(object) or {}
 
@@ -459,6 +464,13 @@ function waysigns.on_use_marker(itemstack, user, pointed_thing)
     elseif pointed_thing.type == 'object' then
         local obj = pointed_thing.ref
         if not obj or not obj:is_valid() or obj:is_player() then
+            return itemstack
+        end
+
+        local lua_ent = obj:get_luaentity()
+        local ename = lua_ent and lua_ent.name
+        if ename == '__builtin:item' or ename == ':__builtin:item'
+                or ename == '__builtin:falling_node' or ename == ':__builtin:falling_node' then
             return itemstack
         end
 

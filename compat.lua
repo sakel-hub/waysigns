@@ -1662,9 +1662,13 @@ function waysigns.get_entity_inscription_data(object)
     local lua_ent = object:get_luaentity()
     local text = (lua_ent and lua_ent._waysigns_text) or (type(object) == 'table' and object._waysigns_text) or nil
     if not text or text == '' then
-        local props = object:get_properties()
-        if props and props.infotext and props.infotext ~= '' then
-            text = props.infotext
+        local ename = lua_ent and lua_ent.name
+        if ename ~= '__builtin:item' and ename ~= ':__builtin:item'
+                and ename ~= '__builtin:falling_node' and ename ~= ':__builtin:falling_node' then
+            local props = object:get_properties()
+            if props and props.infotext and props.infotext ~= '' then
+                text = props.infotext
+            end
         end
     end
 
