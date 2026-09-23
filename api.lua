@@ -524,31 +524,31 @@ local is_valid_sign_text = waysigns.is_valid_sign_text
 ---@param meta NodeMetaRef Node metadata reference from core.get_meta(pos)
 ---@return string|nil text Clean sign text string, or nil if empty or placeholder
 function waysigns.extract_text(meta)
-    -- 0. Dedicated WaySigns inscription marker text (takes top priority)
+    -- Dedicated WaySigns inscription marker text (takes top priority)
     local waysigns_text = meta:get_string('waysigns_text')
     if is_valid_sign_text(waysigns_text) then
         return waysigns_text
     end
 
-    -- 1. Standard text field (Luanti Game / default, signs_lib, basic_signs, signs_rx, hiking, locks, jp_signs)
+    -- Standard text field (Luanti Game / default, signs_lib, basic_signs, signs_rx, hiking, locks, jp_signs)
     local text = meta:get_string('text')
     if is_valid_sign_text(text) then
         return text
     end
 
-    -- 2. display_modpack (signs, boards, steles, signs_road, signs_extra, markdown_poster)
+    -- display_modpack (signs, boards, steles, signs_road, signs_extra, markdown_poster)
     local display_text = meta:get_string('display_text')
     if is_valid_sign_text(display_text) then
         return display_text
     end
 
-    -- 3. breadcrumbs (FaceDeer path marker signs)
+    -- breadcrumbs (FaceDeer path marker signs)
     local label = meta:get_string('label')
     if is_valid_sign_text(label) then
         return label
     end
 
-    -- 4. Multi-line sign fields (mcl_signs / VoxeLibre)
+    -- Multi-line sign fields (mcl_signs / VoxeLibre)
     local t1 = meta:get_string('text1')
     local t2 = meta:get_string('text2')
     local t3 = meta:get_string('text3')
@@ -565,7 +565,7 @@ function waysigns.extract_text(meta)
         end
     end
 
-    -- 5. Fallback infotext (strip outer quotes or translation wrappers e.g. "Some text")
+    -- Fallback infotext (strip outer quotes or translation wrappers e.g. "Some text")
     local infotext = meta:get_string('infotext')
     if infotext and infotext ~= '' and infotext:find('%S') then
         local cleaned = waysigns.strip_all_escapes and waysigns.strip_all_escapes(infotext) or infotext
@@ -714,7 +714,7 @@ function waysigns.clean_line(raw_line)
         return line, nil
     end
 
-    -- 1. Detect 24-bit RGB color from engine color escape if present (\27(c@#RRGGBB))
+    -- Detect 24-bit RGB color from engine color escape if present (\27(c@#RRGGBB))
     local detected_color = nil
     local hex_col = line:match('\27%(c@#(%x+)%)')
     if hex_col then
@@ -730,13 +730,13 @@ function waysigns.clean_line(raw_line)
         end
     end
 
-    -- 2. Strip all Luanti engine escape sequences (\x1b...) including translations and colors
+    -- Strip all Luanti engine escape sequences (\x1b...) including translations and colors
     line = waysigns.strip_all_escapes(line)
 
-    -- 3. Protect escaped signs_lib characters: ## -> \1, #^ -> \2
+    -- Protect escaped signs_lib characters: ## -> \1, #^ -> \2
     line = line:gsub('##', '\1'):gsub('#%^', '\2')
 
-    -- 4. Detect any CGA color code in this line if not already set by engine escape
+    -- Detect any CGA color code in this line if not already set by engine escape
     if not detected_color then
         for code in line:gmatch('#([0-9a-fA-F])') do
             local c = code:lower()
@@ -746,10 +746,10 @@ function waysigns.clean_line(raw_line)
         end
     end
 
-    -- 5. Strip signs_lib color codes #[0-9a-fA-F], including optional trailing space
+    -- Strip signs_lib color codes #[0-9a-fA-F], including optional trailing space
     line = line:gsub('#[0-9a-fA-F]%s?', '')
 
-    -- 6. Restore escaped characters
+    -- Restore escaped characters
     line = line:gsub('\1', '#'):gsub('\2', '^')
 
     return line, detected_color
@@ -1090,7 +1090,7 @@ function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, 
     local client_scale = (real_hud_scaling and real_hud_scaling > 0) and real_hud_scaling or 1.0
     local scale = hud_scale or 2.0
 
-    -- 1. Estimate rendered font glyph height on client display
+    -- Estimate rendered font glyph height on client display
     local font_h
     if is_waypoint ~= false then
         -- 3D Waypoint overlay mode: engine renders text using client GUI font
@@ -1101,7 +1101,7 @@ function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, 
         font_h = math.max(16, math.floor(16 * scale + 0.5))
     end
 
-    -- 2. Calculate screen-responsive line spacing (gap between lines)
+    -- Calculate screen-responsive line spacing (gap between lines)
     -- On small screens (<= 600p): at least 4-5px to ensure no overlap while saving space
     -- On Retina / 1080p (>= 1080p): 7-8px for generous, legible breathing room
     -- On 2K / 4K (> 1200p): scales smoothly up to 14px
@@ -1396,7 +1396,7 @@ function waysigns.remove_all_huds(player)
         return
     end
 
-    -- 1. Remove text lines and page indicator FIRST so text never renders
+    -- Remove text lines and page indicator first so text never renders
     -- on screen for even a single frame without its background plaque.
     for _, id in ipairs(state.hud_line_ids) do
         player:hud_remove(id)
@@ -1408,7 +1408,7 @@ function waysigns.remove_all_huds(player)
         state.hud_page_id = nil
     end
 
-    -- 2. Remove background image LAST
+    -- Remove background image last
     if state.hud_bg_id then
         player:hud_remove(state.hud_bg_id)
         state.hud_bg_id = nil
@@ -1707,7 +1707,7 @@ function waysigns.render_hud(player, state)
 
     local page_changed = (state.rendered_page ~= page_idx) or (state.rendered_scale ~= hud_scale)
 
-    -- 1. Background image (image_waypoint or screen image)
+    -- Background image (image_waypoint or screen image)
     if not state.hud_bg_id then
         if is_waypoint then
             state.hud_bg_id = player:hud_add({
@@ -1745,7 +1745,7 @@ function waysigns.render_hud(player, state)
         end
     end
 
-    -- 2. Line text elements
+    -- Line text elements
     local start_y
     if has_quickview_items and qv_grid_h and qv_b_margin then
         local grid_top_offset = math.floor(board_h / 2) - qv_b_margin - qv_grid_h
@@ -1857,7 +1857,7 @@ function waysigns.render_hud(player, state)
         end
     end
 
-    -- 3. Page indicator for multi-page signs (placed in top-right header badge)
+    -- Page indicator for multi-page signs (placed in top-right header badge)
     if total_pages > 1 then
         local badge_x, badge_y = waysigns.calculate_pagination_offset(
             player, board_w, board_h, hud_scale, is_waypoint, page_idx, total_pages
@@ -2295,7 +2295,7 @@ function waysigns.update_marker_waypoints(player, state, elapsed)
         end
     end
 
-    -- 5. Remove waypoints that are no longer active (e.g. turned out of sight or exceeded cap)
+    -- Remove waypoints that are no longer active (e.g. turned out of sight or exceeded cap)
     for k, wp in pairs(state.marker_waypoints) do
         if not active_keys[k] then
             if wp.hud_id then
@@ -2330,7 +2330,7 @@ function waysigns.update_player(player, dtime)
 
     state.check_timer = state.check_timer + dtime
 
-    -- 1. Raycast detection (throttled at check_interval for multiplayer performance)
+    -- Raycast detection (throttled at check_interval for multiplayer performance)
     if state.check_timer >= waysigns.settings.check_interval then
         state.check_timer = 0
 
@@ -2449,7 +2449,7 @@ function waysigns.update_player(player, dtime)
         end
     end
 
-    -- 2. Fade in / fade out transitions
+    -- Fade in / fade out transitions
     if waysigns.settings.fade_time <= 0 then
         if state.opacity ~= state.target_opacity then
             state.opacity = state.target_opacity
@@ -2474,7 +2474,7 @@ function waysigns.update_player(player, dtime)
         end
     end
 
-    -- 3. Auto-scroll / Pagination for long texts
+    -- Auto-scroll / Pagination for long texts
     if state.is_visible and state.opacity >= 0.9 and waysigns.settings.auto_scroll and state.current_sign_data then
         local total_pages = #state.current_sign_data.wrapped.pages
         if total_pages > 1 then
@@ -2487,7 +2487,7 @@ function waysigns.update_player(player, dtime)
         end
     end
 
-    -- 4. Marker Sense: Proximity waypoints when wielding waysigns:marker
+    -- Marker Sense: Proximity waypoints when wielding waysigns:marker
     if waysigns.settings.marker_sense then
         state.marker_sense_timer = (state.marker_sense_timer or 0) + dtime
         local interval = math.min(0.15, waysigns.settings.check_interval or 0.10)

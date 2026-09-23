@@ -1,5 +1,12 @@
 # WaySigns
 
+[![ContentDB](https://content.luanti.org/packages/SaKeL/waysigns/shields/title/)](https://content.luanti.org/packages/SaKeL/waysigns/)
+[![ContentDB Downloads](https://content.luanti.org/packages/SaKeL/waysigns/shields/downloads/)](https://content.luanti.org/packages/SaKeL/waysigns/)
+[![License: LGPL 2.1](https://img.shields.io/badge/License-LGPL_v2.1-blue.svg)](LICENSE.txt)
+[![Media License: CC-BY-SA 4.0](https://img.shields.io/badge/Media-CC_BY_SA_4.0-lightgrey.svg)](LICENSE.txt)
+![Luanti](https://img.shields.io/badge/Luanti-5.4%2B-5599ff.svg)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/sakel-hub/waysigns/pulls)
+
 ![WaySigns Screenshot](screenshot.png)
 
 > [!NOTE]

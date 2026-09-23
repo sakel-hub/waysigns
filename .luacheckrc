@@ -1,3 +1,4 @@
+std = "lua51"
 unused_args = false
 allow_defined_top = true
 max_line_length = false
@@ -20,7 +21,7 @@ globals = {
 }
 
 read_globals = {
-    "DIR_DELIM", "INIT",
+    "DIR_DELIM", "INIT", "PLATFORM",
 
     "minetest", "core",
     "dump", "dump2",

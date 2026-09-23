@@ -166,7 +166,7 @@ end
 
 -- Register street_signs (road, street blades, and highway signs) if present
 if core.get_modpath('street_signs') then
-    -- 1. Street name blades: crop to single front blade (32x10)
+    -- Street name blades: crop to single front blade (32x10)
     local street_blade_def = {
         tile = '[combine:32x10:0,-2=street_signs_basic.png',
         text_color = 0xFFFFFF,
@@ -178,7 +178,7 @@ if core.get_modpath('street_signs') then
     waysigns.register_sign('street_signs:street_sign_bispot', street_blade_def)
     waysigns.register_sign('street_signs:street_sign_quadspot', street_blade_def)
 
-    -- 2. Highway gantries (small, medium, large, and 1x1-4x1 across green, blue, yellow, orange)
+    -- Highway gantries (small, medium, large, and 1x1-4x1 across green, blue, yellow, orange)
     -- All highway signs are 1x2 sheets: top half is front face, bottom half is gray back
     local highway_sizes = {
         small = 2.0,
@@ -209,7 +209,7 @@ if core.get_modpath('street_signs') then
         end
     end
 
-    -- 3. Standard warning and distance text signs (2x1 sheets: left half is diamond)
+    -- Standard warning and distance text signs (2x1 sheets: left half is diamond)
     local warn_yellow = {
         tile = 'street_signs_warning.png^[sheet:2x1:0,0',
         text_color = 0x222222,
@@ -231,7 +231,7 @@ if core.get_modpath('street_signs') then
     waysigns.register_sign('street_signs:sign_distance_2_lines', warn_yellow)
     waysigns.register_sign('street_signs:sign_distance_2_lines_orange', warn_orange)
 
-    -- 4. Divided highway signs
+    -- Divided highway signs
     waysigns.register_sign('street_signs:sign_divided_highway_begins', warn_yellow)
     waysigns.register_sign('street_signs:sign_divided_highway_ends', warn_yellow)
     waysigns.register_sign('street_signs:sign_divided_highway_with_cross_road', {
@@ -242,7 +242,7 @@ if core.get_modpath('street_signs') then
         aspect_ratio = 1.2,
     })
 
-    -- 5. Service signs (2x1 sheet: left half is front face)
+    -- Service signs (2x1 sheet: left half is front face)
     local service_hospital = { tile = 'street_signs_service_hospital.png^[sheet:2x1:0,0', text_color = 0xFFFFFF, is_metal = true, aspect_ratio = 1.0 }
     local service_fuel = { tile = 'street_signs_service_fuel.png^[sheet:2x1:0,0', text_color = 0xFFFFFF, is_metal = true, aspect_ratio = 1.0 }
     local service_food = { tile = 'street_signs_service_food.png^[sheet:2x1:0,0', text_color = 0xFFFFFF, is_metal = true, aspect_ratio = 1.0 }
@@ -252,12 +252,12 @@ if core.get_modpath('street_signs') then
     waysigns.register_sign('street_signs:sign_service_food', service_food)
     waysigns.register_sign('street_signs:sign_service_lodging', service_lodging)
 
-    -- 6. US Highway & Interstate shields (3D mesh models: use clean steel signboard plaque fallback)
+    -- US Highway & Interstate shields (3D mesh models: use clean steel signboard plaque fallback)
     local us_shield_def = { tile = waysigns.FALLBACK_STEEL, text_color = 0xFFFFFF, is_metal = true, aspect_ratio = 1.0 }
     waysigns.register_sign('street_signs:sign_us_interstate', us_shield_def)
     waysigns.register_sign('street_signs:sign_us_route', us_shield_def)
 
-    -- 7. Detour signs (1x2 vertical sheet: top half is front arrow)
+    -- Detour signs (1x2 vertical sheet: top half is front arrow)
     local detour_def = { tile = 'street_signs_detour_right_m4_10.png^[sheet:1x2:0,0', text_color = 0x111111, is_metal = true, is_light_bg = true, aspect_ratio = 2.67 }
     local detour_l_def = { tile = 'street_signs_detour_left_m4_10.png^[sheet:1x2:0,0', text_color = 0x111111, is_metal = true, is_light_bg = true, aspect_ratio = 2.67 }
     waysigns.register_sign('street_signs:sign_detour_right_m4_10', detour_def)
@@ -691,7 +691,7 @@ local function clean_tile_name(raw_tile, is_metal, nodename)
         end
     end
 
-    -- 1. signs_lib or basic_signs 64x32 dual sign front/back sheet (2x1 grid: front is 0,0)
+    -- signs_lib or basic_signs 64x32 dual sign front/back sheet (2x1 grid: front is 0,0)
     local is_dual_2x1_sheet = lower_base:find('signs_lib_sign_')
         or (lower_base:find('basic_signs_') and not lower_base:find('_edges') and not lower_base:find('_inv') and not lower_base:find('pole_mount'))
 
@@ -699,12 +699,12 @@ local function clean_tile_name(raw_tile, is_metal, nodename)
         return tile_str .. '^[sheet:2x1:0,0'
     end
 
-    -- 2. street_signs intersection street blade: crop to single front blade (32x10)
+    -- street_signs intersection street blade: crop to single front blade (32x10)
     if lower_base:find('street_signs_basic') and not tile_str:find('%[combine:') then
         return '[combine:32x10:0,-2=' .. base
     end
 
-    -- 3. street_signs generic highway signs & detour arrows (1x2 vertical sheet: top half is front face)
+    -- street_signs generic highway signs & detour arrows (1x2 vertical sheet: top half is front face)
     local is_1x2_sheet = lower_base:find('street_signs_generic_highway_')
         or lower_base:find('street_signs_detour_')
         or lower_base:find('street_signs_one_way_')
@@ -714,7 +714,7 @@ local function clean_tile_name(raw_tile, is_metal, nodename)
         return tile_str .. '^[sheet:1x2:0,0'
     end
 
-    -- 4. street_signs warning, services, distances, traffic rules (2x1 sheet: left half is front face)
+    -- street_signs warning, services, distances, traffic rules (2x1 sheet: left half is front face)
     local is_2x1_street_sheet = lower_base:find('street_signs_warning')
         or lower_base:find('street_signs_service_')
         or lower_base:find('street_signs_distance_')
@@ -736,12 +736,12 @@ local function clean_tile_name(raw_tile, is_metal, nodename)
         return tile_str .. '^[sheet:2x1:0,0'
     end
 
-    -- 5. street_signs divided highway with cross road: 256x410 (top 256x256 is front diamond)
+    -- street_signs divided highway with cross road: 256x410 (top 256x256 is front diamond)
     if lower_base:find('street_signs_divided_highway_with_cross_road') and not lower_base:find('_inv') and not tile_str:find('%[combine:') then
         return '[combine:256x256:0,0=' .. base
     end
 
-    -- 6. signs_wooden_direction (display_modpack): 1x2 sheet (top half 16x8 is front arrow)
+    -- signs_wooden_direction (display_modpack): 1x2 sheet (top half 16x8 is front arrow)
     if lower_base:find('signs_wooden_direction') and not tile_str:find('%^%[sheet:') then
         return tile_str .. '^[sheet:1x2:0,0'
     end
@@ -800,7 +800,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
     end
     nodename = nodename or ''
 
-    -- 1. Detect mesh nodes: mesh UV maps cannot be mapped cleanly to 2D boards, so use fallback
+    -- Detect mesh nodes: mesh UV maps cannot be mapped cleanly to 2D boards, so use fallback
     local is_mesh = (node_def.drawtype == 'mesh')
         or (node_def.mesh ~= nil and node_def.mesh ~= '')
         or (node_def.visual == 'mesh')
@@ -849,7 +849,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
         return t
     end
 
-    -- 2. Priority 1: Check for explicit front-facing keywords across all tile definitions
+    -- Check for explicit front-facing keywords across all tile definitions
     -- (front, face, door, lock, panel, screen, dial, meter, gauge, display)
     local front_keywords = {
         'front', 'face', 'door', 'lock', 'panel', 'screen',
@@ -870,7 +870,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
         end
     end
 
-    -- 3. Priority 2: In Luanti standard cube/nodebox mapping, tile min(6, #raw_tiles) is the front face:
+    -- In Luanti standard cube/nodebox mapping, tile min(6, #raw_tiles) is the front face:
     -- 1 = +Y (top), 2 = -Y (bottom), 3 = +X (right), 4 = -X (left), 5 = +Z (back), 6 = -Z (front).
     -- For 2 tiles (top, sides/bottom), tile 2 is the front/side face.
     -- For 3 tiles (top, bottom, sides), tile 3 is the front/side face.
@@ -884,7 +884,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
         end
     end
 
-    -- 4. Priority 3: Check remaining side faces (indices 3, 4, 5, 2), avoiding index 1 (top face)
+    -- Check remaining side faces (indices 3, 4, 5, 2), avoiding index 1 (top face)
     for _, idx in ipairs({ 3, 4, 5, 2 }) do
         if raw_tiles[idx] then
             local cleaned = clean_tile_name(raw_tiles[idx], is_metal, nodename)
@@ -894,7 +894,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
         end
     end
 
-    -- 5. Priority 4: Reverse search through tiles ignoring any tile containing 'top' or 'up'
+    -- Reverse search through tiles ignoring any tile containing 'top' or 'up'
     for i = #raw_tiles, 1, -1 do
         local t = raw_tiles[i]
         local raw_name = (type(t) == 'string' and t) or (type(t) == 'table' and t.name) or ''
@@ -907,7 +907,7 @@ local function get_node_front_tile(node_def, nodename, is_metal)
         end
     end
 
-    -- 6. Last resort: any valid cleaned tile
+    -- Fall back to any valid cleaned tile
     for _, t in ipairs(raw_tiles) do
         local cleaned = clean_tile_name(t, is_metal, nodename)
         if cleaned and cleaned ~= fallback then
@@ -986,7 +986,7 @@ function waysigns.get_sign_data(pos, node, player)
     local waysigns_plaque = meta:get_string('waysigns_plaque')
     local waysigns_color = meta:get_string('waysigns_color')
 
-    -- 1. Custom registered resolvers
+    -- Custom registered resolvers
     for _, resolver in ipairs(waysigns.custom_resolvers) do
         local custom_data = resolver(pos, node)
         if custom_data and custom_data.text and custom_data.text ~= '' then
@@ -1004,7 +1004,7 @@ function waysigns.get_sign_data(pos, node, player)
         return nil
     end
 
-    -- 2. Pre-registered signs
+    -- Pre-registered signs
     local reg_def = waysigns.registered_signs[node.name]
     local is_metal = (reg_def and reg_def.is_metal)
         or waysigns.is_metal_node(node.name, node_def)
@@ -1395,7 +1395,7 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
 
     local base_name = node.name:gsub('_open$', '')
 
-    -- 1. Check custom resolvers registered via waysigns.register_inventory_resolver
+    -- Check custom resolvers registered via waysigns.register_inventory_resolver
     local custom_resolver = waysigns.custom_inventory_resolvers and (waysigns.custom_inventory_resolvers[node.name] or waysigns.custom_inventory_resolvers[base_name])
     if custom_resolver then
         local res = custom_resolver(pos, node, meta, player)
@@ -1408,7 +1408,7 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
         end
     end
 
-    -- 2. Inspect standard node inventory
+    -- Inspect standard node inventory
     if #item_order == 0 and meta then
         local inv = meta:get_inventory()
         if inv then
@@ -1416,7 +1416,7 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
         end
     end
 
-    -- 3. Check player-bound inventory (e.g. x_obsidianmese:chest, enderchests)
+    -- Check player-bound inventory (e.g. x_obsidianmese:chest, enderchests)
     if #item_order == 0 and player then
         local pinv = player:get_inventory()
         if pinv then
@@ -1430,7 +1430,7 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
         end
     end
 
-    -- 4. Check detached inventory referenced in node metadata
+    -- Check detached inventory referenced in node metadata
     if #item_order == 0 and meta then
         local det_name = meta:get_string('detached_inventory')
         if det_name == '' then
@@ -1819,7 +1819,7 @@ local function apply_entity_suppression()
         return
     end
 
-    -- 1. Neutralize signs_lib spawning functions (preserving street_signs if enabled)
+    -- Neutralize signs_lib spawning functions (preserving street_signs if enabled)
     if core.global_exists('signs_lib') then
         if not orig_signs_lib_spawn_entity then
             orig_signs_lib_spawn_entity = signs_lib.spawn_entity
@@ -1843,7 +1843,7 @@ local function apply_entity_suppression()
         end)
     end
 
-    -- 2. Neutralize display_modpack / display_api spawning functions
+    -- Neutralize display_modpack / display_api spawning functions
     local dapi = rawget(_G, 'display_api')
     if dapi and dapi.update_entities then
         rawset(dapi, 'update_entities', function(pos)
@@ -1851,7 +1851,7 @@ local function apply_entity_suppression()
         end)
     end
 
-    -- 3. Hook on_activate and on_step on known sign text entities so existing
+    -- Hook on_activate and on_step on known sign text entities so existing
     -- saved entities self-destruct upon loading from mapblocks
     local sign_entity_names = {
         'signs_lib:text',
@@ -1907,7 +1907,7 @@ if waysigns.settings.disable_sign_entities then
     -- Also run on mods_loaded to ensure late entity registrations are intercepted
     core.register_on_mods_loaded(apply_entity_suppression)
 
-    -- 3. Register LBM to purge entities whenever mapblocks load into memory
+    -- Register LBM to purge entities whenever mapblocks load into memory
     core.register_lbm({
         name = 'waysigns:purge_sign_entities',
         label = 'Purge 3rd party sign text entities',
@@ -1921,7 +1921,7 @@ if waysigns.settings.disable_sign_entities then
         end,
     })
 
-    -- 4. Admin chatcommand to purge loaded sign entities across all players
+    -- Admin chatcommand to purge loaded sign entities across all players
     core.register_chatcommand('waysigns_purge_entities', {
         params = '',
         description = 'Purges all 3rd party sign text entities around connected players',

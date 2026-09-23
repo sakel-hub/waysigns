@@ -4,12 +4,12 @@
     interacting in a town / spawn area containing 100 signs.
 
     Compares:
-    1. Entity-Based Sign Systems (e.g. signs_lib, display_api):
+    - Entity-Based Sign Systems (e.g. signs_lib, display_api):
        - ServerActiveObjects (SAOs) in active blocks
        - Engine active object tracking and per-player distance checks
        - Continuous network synchronization and object packet queuing
        - Client 3D scene node draw call overhead
-    2. Waypoint Signs (WaySigns):
+    - Waypoint Signs (WaySigns):
        - Pure static map nodes (0 ServerActiveObjects)
        - Throttled player raycast check
        - Event-driven HUD updates only for players actively looking at a sign
@@ -111,7 +111,7 @@ local function run_entity_simulation(player_count)
 
     -- Simulate 1,000 server steps (dtime = 0.05s, 20 ticks/sec)
     for _ = 1, STEP_COUNT do
-        -- 1. Players move randomly
+        -- Players move randomly
         for p = 1, player_count do
             local pl = players[p]
             pl.pos.x = pl.pos.x + (math.random() - 0.5) * 0.4
@@ -120,7 +120,7 @@ local function run_entity_simulation(player_count)
             pl.look_dir.z = pl.look_dir.z + (math.random() - 0.5) * 0.1
         end
 
-        -- 2. Engine Active Object step:
+        -- Engine Active Object step:
         -- Every tick, server environment checks distance from EVERY entity to EVERY player
         for e = 1, SIGN_COUNT do
             local ent = entities[e]
@@ -227,7 +227,7 @@ local function run_waysigns_simulation(player_count)
 
     -- Simulate 1,000 server steps (dtime = 0.05s, 20 ticks/sec)
     for _ = 1, STEP_COUNT do
-        -- 1. Players move randomly
+        -- Players move randomly
         for p = 1, player_count do
             local pl = players[p]
             pl.pos.x = pl.pos.x + (math.random() - 0.5) * 0.4
