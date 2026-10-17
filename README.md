@@ -254,6 +254,10 @@ lua test_multiplayer_perf.lua
 
 ---
 
+## Human Authorship Certification (Zero AI)
+
+This project is entirely handcrafted. Every line of code, commit, configuration, documentation, and creative asset was designed, authored, and verified solely by human maintainers. No generative AI or automated generation tools were used at any stage of development.
+
 ## License
 
 - **Source Code**: GNU Lesser General Public License, version 2.1 or later (`LGPL-2.1-or-later`), Copyright (C) 2026 SaKeL.
