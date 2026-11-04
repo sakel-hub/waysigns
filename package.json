@@ -1,16 +1,14 @@
 {
     "name": "waysigns",
     "version": "1.0.0",
-    "description": "Dynamic in-world HUD signboards and waypoints with universal modpack compatibility and zero entity lag.",
-    "main": "init.lua",
+    "description": "Dynamic in-world HUD signboards, waypoints, and inscription marker with zero entity lag.",
+    "main": "index.js",
     "type": "module",
     "engines": {
-        "node": ">=16.0.0",
-        "npm": ">=8.0.0"
+        "node": ">=22.0.0",
+        "npm": ">=10.0.0"
     },
     "scripts": {
-        "test": "lua test.lua",
-        "test:perf": "lua test_multiplayer_perf.lua",
         "lint": "luacheck .",
         "push:ci": "node ./scripts/deploy.mjs"
     },
@@ -25,10 +23,9 @@
     },
     "homepage": "https://github.com/sakel-hub/waysigns#readme",
     "devDependencies": {
-        "node-fetch": "^3.3.2",
-        "yargs": "^17.7.2"
-    },
-    "dependencies": {
-        "dotenv": "^16.4.5"
+        "dotenv": "^16.5.0",
+        "node-fetch": "^3.2.10",
+        "yargs": "^17.6.1"
     }
 }
+
