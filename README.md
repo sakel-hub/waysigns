@@ -101,6 +101,7 @@ All settings can be adjusted in-game via **Settings -> All Settings -> Mods -> w
 | `waysigns_quickview_show_all` | `true` | Display all occupied items in container up to maximum slots in a multi-row grid. |
 | `waysigns_quickview_respect_locks` | `true` | Respect container locks and protection (suppress private inventory contents for non-owners). |
 | `waysigns_enable_marker` | `true` | Enable the Inscription Marker tool (`waysigns:marker`) and craft recipe. |
+| `waysigns_marker_uses` | `100` | Number of inscription uses before the marker tool wears out (`0` = infinite durability). |
 | `waysigns_enable_entity_inspection` | `false` | Allow WaySigns raycasting to detect marked entities and display floating waypoints. |
 | `waysigns_marker_max_chars` | `250` | Maximum character length allowed for custom marker inscriptions. |
 | `waysigns_marker_sense` | `true` | Enable Scribe Sense: displays 3D HUD waypoint glyphs over nearby inscribed nodes/entities when wielding the marker tool. |

@@ -1,6 +1,6 @@
 --[[
     WaySigns: High-performance sign reading & HUD waypoints for Luanti
-    Copyright (C) 2026 Juraj Vajda
+    Copyright (C) 2026 SaKeL
 
     This library is free software; you can redistribute it and/or modify
     it under the terms of the GNU Lesser General Public License as published
@@ -539,13 +539,14 @@ function waysigns.on_place_marker(itemstack, user, pointed_thing)
 end
 
 ---Register tool definition for waysigns:marker
+local marker_groups = waysigns.settings.enable_marker and { tool = 1 } or { tool = 1, not_in_creative_inventory = 1 }
 core.register_tool('waysigns:marker', {
     short_description = S('Inscription Marker'),
     description = S('Inscription Marker\nWrite in-world sign messages onto solid blocks and entities'),
     inventory_image = 'waysigns_marker.png',
     wield_image = 'waysigns_marker.png^[transformR270',
     stack_max = 1,
-    groups = { tool = 1 },
+    groups = marker_groups,
     on_place = function(itemstack, user, pointed_thing)
         return waysigns.on_place_marker(itemstack, user, pointed_thing)
     end,
@@ -564,6 +565,11 @@ core.register_on_player_receive_fields(function(player, formname, fields)
     end
 
     local player_name = player:get_player_name()
+    if not waysigns.settings.enable_marker then
+        active_targets[player_name] = nil
+        core.close_formspec(player_name, 'waysigns:inscribe')
+        return
+    end
     local target = active_targets[player_name]
     if not target then
         return
@@ -797,7 +803,7 @@ core.register_on_leaveplayer(function(player)
 end)
 
 ---Unique non-conflicting shapeless craft recipe: coal lump + steel ingot + stick
-if core.get_modpath('default') then
+if waysigns.settings.enable_marker and core.get_modpath('default') then
     core.register_craft({
         output = 'waysigns:marker',
         type = 'shapeless',

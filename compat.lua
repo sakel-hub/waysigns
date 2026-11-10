@@ -1031,10 +1031,13 @@ function waysigns.get_sign_data(pos, node, player)
     end
     local inv_hash = qv and qv.inv_hash or ''
 
+    local wrap_chars = waysigns.settings.max_chars_per_line or 30
+    local wrap_lines = waysigns.settings.max_lines or 5
     local now = core.get_us_time() / 1000000
     if cached and cached.nodename == node.name and cached.raw_text == text
         and cached.rx_scale == rx_scale and cached.rx_color == rx_color
         and cached.waysigns_plaque == waysigns_plaque and cached.waysigns_color == waysigns_color
+        and cached.wrap_chars == wrap_chars and cached.wrap_lines == wrap_lines
         and cached.inv_hash == inv_hash and cached.timestamp and (now - cached.timestamp < 0.5) then
         return cached
     end
@@ -1211,7 +1214,9 @@ function waysigns.get_sign_data(pos, node, player)
         color = waysigns_color,
         waysigns_color = waysigns_color,
         author = has_inscription and meta:get_string('waysigns_author') or nil,
-        wrapped = waysigns.wrap_text(text, 30, 5, text_color),
+        wrapped = waysigns.wrap_text(text, nil, nil, text_color),
+        wrap_chars = wrap_chars,
+        wrap_lines = wrap_lines,
         has_inscription = has_inscription,
         is_dedicated_sign = is_dedicated_sign,
         is_infotext = is_infotext,
@@ -1452,15 +1457,15 @@ function waysigns.extract_node_inventory(pos, node, meta, player, max_slots)
     end
 
     local default_limit = waysigns.settings.quickview_max_slots or 32
-    local limit = math.max(1, math.min(32, max_slots or default_limit))
+    local effective_default = (waysigns.settings.quickview_show_all == false) and math.min(8, default_limit) or default_limit
+    local limit = math.max(1, math.min(32, max_slots or effective_default))
     local slots = {}
     for i = 1, math.min(#item_order, limit) do
         slots[#slots + 1] = item_order[i]
     end
     local overflow = math.max(0, #item_order - limit)
 
-    -- Option A: Text Line Summary (e.g. "64x Wood, 12x Apple, 1x Steel Pickaxe")
-    -- Do not truncate item names or inventory items; 5-line wrapping with pagination displays full content
+    -- Text line summary of stored container items without name truncation
     local summary_parts = {}
     for i = 1, math.min(#item_order, limit) do
         local it = item_order[i]
@@ -1561,8 +1566,15 @@ function waysigns.get_node_infotext_data(pos, node, player)
         or (cached_node and not cached_node.by_player and cached_node)
 
     -- Container inventory quickview extraction (with 0.5s throttling)
+    local wrap_chars = waysigns.settings.max_chars_per_line or 30
+    local wrap_lines = waysigns.settings.max_lines or 5
+    local qv_cfg = tostring(waysigns.settings.enable_inventory_quickview)
+        .. ':' .. tostring(waysigns.settings.quickview_max_slots)
+        .. ':' .. tostring(waysigns.settings.quickview_show_all)
+        .. ':' .. tostring(waysigns.settings.quickview_respect_locks)
     local now = core.get_us_time() / 1000000
     if cached and cached.nodename == node.name and cached.cand == cand and cached.timestamp and (now - cached.timestamp < 0.5)
+        and cached.wrap_chars == wrap_chars and cached.wrap_lines == wrap_lines and cached.qv_cfg == qv_cfg
         and (cached.waysigns_plaque or '') == waysigns_plaque and (cached.waysigns_color or '') == waysigns_color then
         return cached
     end
@@ -1583,6 +1595,7 @@ function waysigns.get_node_infotext_data(pos, node, player)
 
     local inv_hash = qv and qv.inv_hash or ''
     if cached and cached.nodename == node.name and cached.raw_text == full_cand and cached.inv_hash == inv_hash
+        and cached.wrap_chars == wrap_chars and cached.wrap_lines == wrap_lines and cached.qv_cfg == qv_cfg
         and (cached.waysigns_plaque or '') == waysigns_plaque and (cached.waysigns_color or '') == waysigns_color
         and cached.is_infotext then
         cached.timestamp = now
@@ -1610,8 +1623,8 @@ function waysigns.get_node_infotext_data(pos, node, player)
         text_color = is_light_bg and 0x222222 or 0xFFFFFF
     end
 
-    -- Wrapped lines for infotext: allow up to 30 chars per line and 5 lines for balanced presentation
-    local wrapped = waysigns.wrap_text(full_cand, 30, 5, text_color)
+    -- Wrapped lines for infotext using configured wrapping limits
+    local wrapped = waysigns.wrap_text(full_cand, nil, nil, text_color)
 
     local data = {
         nodename = node.name,
@@ -1624,6 +1637,9 @@ function waysigns.get_node_infotext_data(pos, node, player)
         text_color = text_color,
         aspect_ratio = has_visual_quickview and 1.0 or (has_waysigns and 1.40 or 1.0),
         wrapped = wrapped,
+        wrap_chars = wrap_chars,
+        wrap_lines = wrap_lines,
+        qv_cfg = qv_cfg,
         is_infotext = true,
         has_inscription = has_waysigns,
         quickview_items = qv and qv.items or nil,
@@ -1699,7 +1715,7 @@ function waysigns.get_entity_inscription_data(object)
         z = pos.z,
     }
 
-    local wrapped = waysigns.wrap_text(text, 26, 4, text_color)
+    local wrapped = waysigns.wrap_text(text, nil, nil, text_color)
 
     return {
         nodename = (lua_ent and lua_ent.name) or 'entity',
@@ -1714,6 +1730,7 @@ function waysigns.get_entity_inscription_data(object)
         wrapped = wrapped,
         pages = wrapped.pages,
         is_entity = true,
+        obj = object,
         pos = waypoint_pos,
         face_pos = waypoint_pos,
         plaque = plaque,

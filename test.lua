@@ -401,11 +401,95 @@ do
     }
     local player_mt = { __index = default_player_methods }
 
+    local function check_v2f_field(vec, field_label)
+        assert(type(vec) == 'table', string.format('Invalid vector for %s (expected table, got %s).', field_label, type(vec)))
+        if vec.x == nil then
+            error('Invalid vector coordinate x (value is nil).', 2)
+        end
+        if vec.y == nil then
+            error('Invalid vector coordinate y (value is nil).', 2)
+        end
+        assert(type(vec.x) == 'number', string.format('Invalid vector coordinate x for %s (expected number, got %s).', field_label, type(vec.x)))
+        assert(type(vec.y) == 'number', string.format('Invalid vector coordinate y for %s (expected number, got %s).', field_label, type(vec.y)))
+    end
+
+    local function check_v3f_field(vec, field_label)
+        assert(type(vec) == 'table', string.format('Invalid vector for %s (expected table, got %s).', field_label, type(vec)))
+        if vec.x == nil then
+            error('Invalid vector coordinate x (value is nil).', 2)
+        end
+        if vec.y == nil then
+            error('Invalid vector coordinate y (value is nil).', 2)
+        end
+        if vec.z == nil then
+            error('Invalid vector coordinate z (value is nil).', 2)
+        end
+        assert(type(vec.x) == 'number' and type(vec.y) == 'number' and type(vec.z) == 'number',
+            string.format('Invalid 3D vector coordinates for %s.', field_label))
+    end
+
+    local function validate_hud_def(def)
+        assert(type(def) == 'table', 'hud_add definition must be a table')
+        local v2_fields = { 'position', 'scale', 'size', 'alignment', 'offset' }
+        for i = 1, #v2_fields do
+            local fname = v2_fields[i]
+            if type(def[fname]) == 'table' then
+                check_v2f_field(def[fname], fname)
+            end
+        end
+        if type(def.world_pos) == 'table' then
+            check_v3f_field(def.world_pos, 'world_pos')
+        end
+    end
+
+    local function validate_hud_stat_change(stat, val)
+        if stat == 'position' or stat == 'pos' or stat == 'scale' or stat == 'alignment' or stat == 'align' or stat == 'offset' or stat == 'size' then
+            check_v2f_field(val, stat)
+        elseif stat == 'world_pos' then
+            check_v3f_field(val, 'world_pos')
+        end
+    end
+
+    _G.__waysigns_validate_hud_def = validate_hud_def
+    _G.__waysigns_validate_hud_stat_change = validate_hud_stat_change
+
+    local wrapped_hud_players = setmetatable({}, { __mode = 'k' })
+
     local function ensure_player_mock(player)
-        if player and type(player) == 'table' and not getmetatable(player) then
-            setmetatable(player, player_mt)
+        if player and type(player) == 'table' then
+            if not getmetatable(player) then
+                setmetatable(player, player_mt)
+            end
+            if not wrapped_hud_players[player] then
+                wrapped_hud_players[player] = true
+                local raw_add = player.hud_add
+                local raw_change = player.hud_change
+                player.hud_add = function(self, def)
+                    validate_hud_def(def)
+                    return raw_add(self, def)
+                end
+                player.hud_change = function(self, id, stat, val)
+                    validate_hud_stat_change(stat, val)
+                    return raw_change(self, id, stat, val)
+                end
+            end
         end
         return player
+    end
+
+    local orig_render_hud = waysigns.render_hud
+    waysigns.render_hud = function(player, state)
+        return orig_render_hud(ensure_player_mock(player), state)
+    end
+
+    local orig_show_hud = waysigns.show_hud
+    waysigns.show_hud = function(player, sign_pos, sign_data, normal, intersection_point, is_attached_above)
+        return orig_show_hud(ensure_player_mock(player), sign_pos, sign_data, normal, intersection_point, is_attached_above)
+    end
+
+    local orig_update_marker_wp = waysigns.update_marker_waypoints
+    waysigns.update_marker_waypoints = function(player, state, elapsed)
+        return orig_update_marker_wp(ensure_player_mock(player), state, elapsed)
     end
 
     local orig_get_or_create = waysigns.get_or_create_player_state
@@ -444,8 +528,8 @@ do
     end
 
     local orig_extract_inv = waysigns.extract_node_inventory
-    waysigns.extract_node_inventory = function(pos, node, meta, player)
-        return orig_extract_inv(pos, node, meta, ensure_player_mock(player))
+    waysigns.extract_node_inventory = function(pos, node, meta, player, max_slots)
+        return orig_extract_inv(pos, node, meta, ensure_player_mock(player), max_slots)
     end
 
     local orig_effective_scale = waysigns.get_effective_scale
@@ -466,6 +550,12 @@ do
         end
         return list
     end
+
+    local init_snap = {}
+    for k, v in pairs(waysigns.settings) do
+        init_snap[k] = v
+    end
+    rawset(_G, '__waysigns_initial_settings', init_snap)
 end
 
 print('--- Test 1: wrap_text short text ---')
@@ -703,8 +793,8 @@ assert(bg_elem.text:find('%^%[resize:'), 'Expected resize modifier on background
 -- Inspect text element
 local text_elem = captured_hud_defs[2]
 assert(text_elem.type == 'text', 'Expected text HUD element')
-assert(text_elem.size and text_elem.size.x == 2.0, 'Expected 2.0 font size scale')
-assert(text_elem.style == 1, 'Expected bold font style (1)')
+assert(text_elem.size and text_elem.size.x == 1.0 and text_elem.size.y == 0, 'Expected normalized 1.0x {x=1.0, y=0} font size matching waypoint mode')
+assert(text_elem.style == 0, 'Expected regular font style (0) matching waypoint mode')
 print('PASS Test 12')
 
 print('--- Test 13: Aspect ratio detection from node_box & registration ---')
@@ -6866,10 +6956,10 @@ end)()
     assert(m800_x == 72, '800x480 badge_x must be 72, got: ' .. tostring(m800_x))
     assert(m800_y == -90, '800x480 badge_y must be -90, got: ' .. tostring(m800_y))
 
-    -- 1E: 2D Screen Overlay Mode (is_waypoint = false)
+    -- 1E: 2D Screen Overlay Mode (is_waypoint = false): matches 1080p waypoint base coordinates (120, -138)
     local ov_x, ov_y = waysigns.calculate_pagination_offset(test90_player, 320, 320, 2.0, false, 1, 2)
-    assert(ov_x == 96, '2D Overlay badge_x must be 96, got: ' .. tostring(ov_x))
-    assert(ov_y == -127, '2D Overlay badge_y must be -127, got: ' .. tostring(ov_y))
+    assert(ov_x == 120, '2D Overlay badge_x must match waypoint base coordinate (120), got: ' .. tostring(ov_x))
+    assert(ov_y == -138, '2D Overlay badge_y must match waypoint base coordinate (-138), got: ' .. tostring(ov_y))
 
     -- 1F: Multi-digit page indicator [10/12] on Retina
     core.get_player_window_information = function()
@@ -6970,7 +7060,7 @@ end)()
                 number = def.number,
                 offset = def.offset and { x = def.offset.x, y = def.offset.y },
                 world_pos = def.world_pos and { x = def.world_pos.x, y = def.world_pos.y, z = def.world_pos.z },
-                size = def.size and { x = def.size.x },
+                size = def.size and { x = def.size.x, y = def.size.y },
                 position = def.position and { x = def.position.x, y = def.position.y },
             }
             self.hud_adds[id] = self.hud_elements[id]
@@ -6991,7 +7081,7 @@ end)()
             elseif stat == 'world_pos' then
                 self.hud_elements[id].world_pos = { x = val.x, y = val.y, z = val.z }
             elseif stat == 'size' then
-                self.hud_elements[id].size = { x = val.x }
+                self.hud_elements[id].size = { x = val.x, y = val.y }
             elseif stat == 'position' then
                 self.hud_elements[id].position = { x = val.x, y = val.y }
             end
@@ -7333,7 +7423,601 @@ print('--- Test 92: Disabled infotext and entity HUDs by default & preserved sig
     print('PASS Test 92')
 end)()
 
-print('================ ALL 92 UNIT TESTS PASSED ================')
+-- ============================================================================
+-- Test 93: Issue #1 Regression - Overlay Mode 2D Vector Coordinates & Layout
+-- ============================================================================
+;(function()
+    print('--- Test 93: Overlay Mode 2D HUD Vector Coordinates & Quickview Layout (Issue #1) ---')
+
+    -- Verify the test harness rejects missing vector coordinate y just like Luanti's read_v2f
+    local ok_add, err_add = pcall(_G.__waysigns_validate_hud_def, {
+        type = 'text',
+        position = { x = 0.5, y = 0.5 },
+        size = { x = 2.0 },
+    })
+    assert(not ok_add and tostring(err_add):find('Invalid vector coordinate y %(value is nil%)'),
+        'HUD validator must reject size table missing y coordinate')
+
+    local ok_chg, err_chg = pcall(_G.__waysigns_validate_hud_stat_change, 'size', { x = 1.6 })
+    assert(not ok_chg and tostring(err_chg):find('Invalid vector coordinate y %(value is nil%)'),
+        'HUD stat validator must reject hud_change size table missing y coordinate')
+
+    local orig_mode = waysigns.settings.display_mode
+    local orig_scale = waysigns.settings.hud_scale
+    local orig_fade = waysigns.settings.fade_time
+    local orig_get_info = core.get_player_window_information
+
+    waysigns.settings.display_mode = 'overlay'
+    waysigns.settings.hud_scale = 2.0
+    waysigns.settings.fade_time = 0
+
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.0 }
+    end
+
+    local next_id = 9000
+    local p_overlay = {
+        huds = {},
+        size_changes = 0,
+        get_player_name = function() return 'overlay_issue1_tester' end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_hp = function() return 20 end,
+        get_meta = function() return { get_string = function() return '' end } end,
+        hud_add = function(self, def)
+            next_id = next_id + 1
+            self.huds[next_id] = {
+                type = def.type,
+                position = def.position and { x = def.position.x, y = def.position.y },
+                scale = def.scale and { x = def.scale.x, y = def.scale.y },
+                size = def.size and { x = def.size.x, y = def.size.y },
+                style = def.style,
+                alignment = def.alignment and { x = def.alignment.x, y = def.alignment.y },
+                offset = def.offset and { x = def.offset.x, y = def.offset.y },
+                text = def.text,
+                number = def.number,
+            }
+            return next_id
+        end,
+        hud_change = function(self, id, stat, val)
+            local elem = self.huds[id]
+            if not elem then return end
+            if stat == 'size' then
+                self.size_changes = self.size_changes + 1
+                elem.size = { x = val.x, y = val.y }
+            elseif stat == 'position' then
+                elem.position = { x = val.x, y = val.y }
+            elseif stat == 'offset' then
+                elem.offset = { x = val.x, y = val.y }
+            else
+                elem[stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            self.huds[id] = nil
+        end,
+    }
+
+    local multi_raw = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nPage 2 Line A\nPage 2 Line B'
+    local multi_wrapped = waysigns.wrap_text(multi_raw, 30, 5, 0xFFFFFF)
+    assert(#multi_wrapped.pages == 2, 'Expected 2 pages for overlay pagination test')
+
+    local overlay_sign_data = {
+        raw_text = multi_raw,
+        wrapped = multi_wrapped,
+        tile = 'default_wood.png',
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.40,
+        quickview_items = {
+            { name = 'default:torch', icon = 'default_torch_on_floor.png', count = 8 },
+            { name = 'default:apple', icon = 'default_apple.png', count = 4 },
+        },
+    }
+
+    waysigns.show_hud(p_overlay, { x = 4, y = 10, z = -3 }, overlay_sign_data, { x = 0, y = 0, z = 1 }, { x = 4, y = 10, z = -2.5 }, false)
+    local st = waysigns.get_or_create_player_state(p_overlay)
+    assert(st.is_visible == true, 'Overlay HUD must become visible without error')
+    assert(#st.hud_line_ids == 5, 'Expected 5 overlay line HUD elements on page 1')
+    assert(st.hud_page_id ~= nil, 'Expected pagination badge HUD element in overlay mode')
+
+    -- Verify every text HUD element has normalized 1.0x size {x=1.0, y=0} and regular style=0 matching waypoint mode
+    for i = 1, #st.hud_line_ids do
+        local h = p_overlay.huds[st.hud_line_ids[i]]
+        assert(h and h.type == 'text', 'Line HUD must be text type in overlay mode')
+        assert(type(h.size) == 'table' and math.abs(h.size.x - 1.0) < 0.001 and h.size.y == 0,
+            'Overlay line HUD size must be normalized {x=1.0, y=0} at hud_scale=2.0')
+        assert(h.style == 0, 'Overlay line HUD must use regular style=0 matching waypoint mode')
+    end
+    local page_h = p_overlay.huds[st.hud_page_id]
+    assert(page_h and page_h.type == 'text', 'Page badge HUD must be text type in overlay mode')
+    assert(type(page_h.size) == 'table' and math.abs(page_h.size.x - 1.0) < 0.001 and page_h.size.y == 0,
+        'Page badge HUD size must be normalized {x=1.0, y=0} at hud_scale=2.0')
+    assert(page_h.style == 0, 'Page badge HUD must use regular style=0 matching waypoint mode')
+
+    -- Verify 5-line quickview in overlay mode never overlaps vertically (line_height >= font_h + 4)
+    assert(st.rendered_line_height >= st.rendered_font_height + 4,
+        string.format('Overlay quickview line_height (%d) must be >= font_h + 4 (%d)',
+            st.rendered_line_height, st.rendered_font_height + 4))
+    local line_step = st.rendered_line_offsets[2] - st.rendered_line_offsets[1]
+    assert(line_step >= st.rendered_font_height + 4,
+        'Consecutive overlay lines must not overlap vertically on quickview plaques')
+
+    -- Verify 1:1 parity of line metrics between waypoint and overlay modes on 1080p (real_hud_scaling = 1.0)
+    local wp_lh, wp_ls, wp_fh = waysigns.calculate_line_metrics(p_overlay, 2.0, 1920, 1080, true, true, 4)
+    local ov_lh, ov_ls, ov_fh, ov_ts = waysigns.calculate_line_metrics(p_overlay, 2.0, 1920, 1080, false, true, 4)
+    assert(wp_lh == ov_lh and wp_ls == ov_ls and wp_fh == ov_fh and ov_ts == 1.0,
+        'Overlay and waypoint line metrics must match 1:1 at default scale')
+
+    -- Trigger page_changed via resolution/scale adaptation + page advance to exercise hud_change('size', ...)
+    core.get_player_window_information = function()
+        return { size = { x = 800, y = 600 }, real_hud_scaling = 1.0 }
+    end
+    st.current_page = 2
+    waysigns.render_hud(p_overlay, st)
+    assert(p_overlay.size_changes >= 3, 'Expected hud_change("size", ...) calls for lines and page badge')
+    for i = 1, #st.hud_line_ids do
+        local h = p_overlay.huds[st.hud_line_ids[i]]
+        assert(h and h.size and math.abs(h.size.x - 0.8) < 0.001 and h.size.y == 0,
+            'Updated line HUD size on 800x600 (hud_scale=1.6) must be {x=0.8, y=0}')
+    end
+    local updated_page_h = p_overlay.huds[st.hud_page_id]
+    assert(updated_page_h and updated_page_h.size and math.abs(updated_page_h.size.x - 0.8) < 0.001 and updated_page_h.size.y == 0,
+        'Updated page badge HUD size on 800x600 (hud_scale=1.6) must be {x=0.8, y=0}')
+
+    -- Also verify standard sign (no quickview) at 1080p uses normalized {x=1.0, y=0} and style=0
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.0 }
+    end
+    waysigns.remove_all_huds(p_overlay)
+    local plain_sign_data = {
+        raw_text = 'Town Square\nNorth Gate',
+        wrapped = waysigns.wrap_text('Town Square\nNorth Gate', 30, 5, 0xFFFFFF),
+        tile = 'default_wood.png',
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.40,
+    }
+    waysigns.show_hud(p_overlay, { x = 5, y = 10, z = -3 }, plain_sign_data, { x = 0, y = 0, z = 1 }, nil, false)
+    local h_plain = p_overlay.huds[st.hud_line_ids[1]]
+    assert(h_plain and h_plain.size and h_plain.size.x == 1.0 and h_plain.size.y == 0 and h_plain.style == 0,
+        'Standard overlay sign text must have normalized size {x=1.0, y=0} and regular style=0')
+
+    -- Cleanup
+    waysigns.remove_all_huds(p_overlay)
+    waysigns.settings.display_mode = orig_mode
+    waysigns.settings.hud_scale = orig_scale
+    waysigns.settings.fade_time = orig_fade
+    core.get_player_window_information = orig_get_info
+    print('PASS Test 93')
+end)()
+
+-- ============================================================================
+-- Test 94: Full settingtypes.txt Audit & Cross-Mode Integration Verification
+-- ============================================================================
+;(function()
+    print('--- Test 94: Full settingtypes.txt Audit & Cross-Mode Integration (Waypoint & Overlay) ---')
+
+    local saved_settings = {}
+    for k, v in pairs(waysigns.settings) do
+        saved_settings[k] = v
+    end
+    local orig_get_info = core.get_player_window_information
+    local orig_get_node_or_nil = core.get_node_or_nil
+    local orig_get_objects = core.get_objects_inside_radius
+    local orig_los = core.line_of_sight
+    local orig_raycast = core.raycast
+    local orig_chat = core.chat_send_player
+
+    -- Restore load-time defaults for baseline verification
+    local initial = rawget(_G, '__waysigns_initial_settings') or {}
+    for k, v in pairs(initial) do
+        waysigns.settings[k] = v
+    end
+
+    -- Verify every setting in settingtypes.txt maps 1:1 to waysigns.settings with exact default & type
+    local f = assert(io.open('settingtypes.txt', 'r'), 'Must open settingtypes.txt')
+    local parsed_count = 0
+    local seen_keys = {}
+    for line in f:lines() do
+        local trimmed = line:match('^%s*(.-)%s*$')
+        if trimmed ~= '' and trimmed:sub(1, 1) ~= '#' then
+            local full_name, stype, sdefault = trimmed:match('^(waysigns_[%w_]+)%s+%b()%s+(%w+)%s+(%S+)')
+            assert(full_name and stype and sdefault, 'Malformed settingtypes.txt entry: ' .. trimmed)
+            local short_key = full_name:gsub('^waysigns_', '')
+            seen_keys[short_key] = true
+            parsed_count = parsed_count + 1
+            local actual = initial[short_key]
+            assert(actual ~= nil, 'Missing waysigns.settings.' .. short_key .. ' for ' .. full_name)
+            if stype == 'bool' then
+                local expected_bool = (sdefault == 'true')
+                assert(type(actual) == 'boolean' and actual == expected_bool,
+                    string.format('Default mismatch for %s: expected %s, got %s', full_name, tostring(expected_bool), tostring(actual)))
+            elseif stype == 'int' or stype == 'float' then
+                local expected_num = tonumber(sdefault)
+                assert(type(actual) == 'number' and math.abs(actual - expected_num) < 0.0001,
+                    string.format('Default mismatch for %s: expected %s, got %s', full_name, tostring(expected_num), tostring(actual)))
+            elseif stype == 'enum' then
+                assert(type(actual) == 'string' and actual == sdefault,
+                    string.format('Default mismatch for %s: expected %s, got %s', full_name, tostring(sdefault), tostring(actual)))
+            end
+        end
+    end
+    f:close()
+    assert(parsed_count == 35, 'Expected 35 settings in settingtypes.txt, parsed: ' .. tostring(parsed_count))
+    for k in pairs(initial) do
+        assert(seen_keys[k], 'Undocumented setting in waysigns.settings not present in settingtypes.txt: ' .. tostring(k))
+    end
+
+    -- Create mock player with full HUD tracking & C++ vector validation
+    local hud_seq = 12000
+    local p = {
+        huds = {},
+        changes = 0,
+        wielded = ItemStack(''),
+        get_player_name = function() return 'settings_audit_tester' end,
+        is_player = function() return true end,
+        is_valid = function() return true end,
+        get_pos = function() return { x = 10, y = 5, z = 0 } end,
+        get_look_dir = function() return { x = 0, y = 0, z = 1 } end,
+        get_properties = function() return { eye_height = 1.625 } end,
+        get_hp = function() return 20 end,
+        get_meta = function() return { get_string = function() return '' end } end,
+        get_inventory = function() return nil end,
+        get_player_control = function() return { sneak = false } end,
+        get_wielded_item = function(self) return self.wielded end,
+        set_wielded_item = function(self, s) self.wielded = s end,
+        hud_add = function(self, def)
+            hud_seq = hud_seq + 1
+            self.huds[hud_seq] = {
+                type = def.type,
+                world_pos = def.world_pos and { x = def.world_pos.x, y = def.world_pos.y, z = def.world_pos.z },
+                position = def.position and { x = def.position.x, y = def.position.y },
+                scale = def.scale and { x = def.scale.x, y = def.scale.y },
+                size = def.size and { x = def.size.x, y = def.size.y },
+                alignment = def.alignment and { x = def.alignment.x, y = def.alignment.y },
+                offset = def.offset and { x = def.offset.x, y = def.offset.y },
+                text = def.text,
+                name = def.name,
+                number = def.number,
+                style = def.style,
+            }
+            return hud_seq
+        end,
+        hud_change = function(self, id, stat, val)
+            self.changes = self.changes + 1
+            local h = self.huds[id]
+            if not h then return end
+            if type(val) == 'table' then
+                h[stat] = { x = val.x, y = val.y, z = val.z }
+            else
+                h[stat] = val
+            end
+        end,
+        hud_remove = function(self, id)
+            self.huds[id] = nil
+        end,
+    }
+
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.0 }
+    end
+
+    -- Verify live display_mode switching (overlay <-> waypoint) preserves sign state, opacity, and world_pos
+    waysigns.settings.fade_time = 0
+    waysigns.settings.display_mode = 'overlay'
+    local sign_pos = { x = 10, y = 6, z = 3, meta = { text = 'Alpha Beta Gamma Delta\nEpsilon Zeta Eta Theta' } }
+    local sign_node = { name = 'default:sign_wall_wood', param2 = 0 }
+    waysigns.clear_caches()
+    local sdata = waysigns.get_sign_data(sign_pos, sign_node, p)
+    assert(sdata ~= nil, 'Sign data must resolve')
+    waysigns.show_hud(p, sign_pos, sdata, { x = 0, y = 0, z = -1 }, { x = 10, y = 6, z = 2.5625 }, false)
+    local st = waysigns.get_or_create_player_state(p)
+    assert(st.hud_bg_id and p.huds[st.hud_bg_id].type == 'image', 'Overlay mode must create 2D image background')
+    assert(st.opacity == 1.0, 'Instant fade must set opacity = 1.0')
+
+    -- Switch live from overlay -> waypoint without re-running show_hud: must NOT crash with nil world_pos!
+    waysigns.settings.display_mode = 'waypoint'
+    waysigns.render_hud(p, st)
+    assert(st.hud_bg_id and p.huds[st.hud_bg_id].type == 'image_waypoint',
+        'Switching overlay -> waypoint live must recreate 3D image_waypoint')
+    assert(p.huds[st.hud_bg_id].world_pos ~= nil and p.huds[st.hud_bg_id].world_pos.x == 10,
+        'Live mode switch must preserve valid 3D world_pos')
+    assert(st.opacity == 1.0 and st.current_sign_data == sdata,
+        'Live mode switch must preserve opacity and current_sign_data')
+
+    -- Switch live back from waypoint -> overlay
+    waysigns.settings.display_mode = 'overlay'
+    waysigns.render_hud(p, st)
+    assert(st.hud_bg_id and p.huds[st.hud_bg_id].type == 'image',
+        'Switching waypoint -> overlay live must recreate 2D image HUD')
+
+    -- Verify max_chars_per_line & max_lines work dynamically in get_sign_data, get_node_infotext_data, and get_entity_inscription_data
+    local long_msg = 'WordOne WordTwo WordThree WordFour WordFive WordSix WordSeven WordEight WordNine WordTen'
+    sign_pos.meta.text = long_msg
+    waysigns.invalidate_cache(sign_pos)
+    waysigns.settings.max_chars_per_line = 16
+    waysigns.settings.max_lines = 2
+    local sdata_narrow = waysigns.get_sign_data(sign_pos, sign_node, p)
+    assert(#sdata_narrow.wrapped.pages >= 3, 'max_chars_per_line=16, max_lines=2 must paginate sign text into >= 3 pages')
+    assert(#sdata_narrow.wrapped.pages[1] == 2, 'Page 1 must respect max_lines=2')
+    for _, ln in ipairs(sdata_narrow.wrapped.pages[1]) do
+        assert(#ln.text <= 16, 'Sign line must respect max_chars_per_line=16, got: ' .. ln.text)
+    end
+
+    -- Without manual cache invalidation, changing max_chars_per_line & max_lines must bypass stale 0.5s cache
+    waysigns.settings.max_chars_per_line = 60
+    waysigns.settings.max_lines = 8
+    local sdata_wide = waysigns.get_sign_data(sign_pos, sign_node, p)
+    assert(#sdata_wide.wrapped.pages == 1, 'max_chars_per_line=60, max_lines=8 must fit on 1 page without stale cache')
+    assert(sdata_wide.wrapped.max_line_len > 30, 'Wide wrapping must allow lines > 30 chars')
+
+    -- Render wide sign in both waypoint and overlay modes and verify plaque expands to fit >30 char lines
+    for _, mode in ipairs({ 'waypoint', 'overlay' }) do
+        waysigns.settings.display_mode = mode
+        waysigns.show_hud(p, sign_pos, sdata_wide, { x = 0, y = 0, z = -1 }, nil, false)
+        local bg_tex = p.huds[st.hud_bg_id].text
+        local bw = tonumber(bg_tex:match('%[resize:(%d+)x%d+'))
+        assert(bw and bw > 440, 'Plaque width must expand beyond 440px when max_line_len > 30 in ' .. mode .. ' mode, got: ' .. tostring(bw))
+    end
+
+    -- Check infotext node & entity also honor max_chars_per_line and max_lines
+    waysigns.settings.max_chars_per_line = 15
+    waysigns.settings.max_lines = 2
+    local info_pos = { x = 11, y = 6, z = 3, meta = { infotext = long_msg } }
+    local info_narrow = waysigns.get_node_infotext_data(info_pos, { name = 'default:chest', param2 = 0 }, p)
+    assert(info_narrow and #info_narrow.wrapped.pages >= 3 and #info_narrow.wrapped.pages[1] == 2,
+        'get_node_infotext_data must respect max_chars_per_line and max_lines')
+
+    local ent_obj = {
+        get_pos = function() return { x = 12, y = 6, z = 3 } end,
+        is_player = function() return false end,
+        is_valid = function() return true end,
+        get_properties = function() return { infotext = long_msg, collisionbox = { -0.3, 0, -0.3, 0.3, 1.5, 0.3 } } end,
+        set_properties = function() end,
+        get_luaentity = function() return { name = 'test:scribe_npc', _waysigns_text = long_msg } end,
+    }
+    local ent_narrow = waysigns.get_entity_inscription_data(ent_obj)
+    assert(ent_narrow and #ent_narrow.wrapped.pages >= 3 and #ent_narrow.wrapped.pages[1] == 2,
+        'get_entity_inscription_data must respect max_chars_per_line and max_lines')
+
+    waysigns.settings.max_chars_per_line = 30
+    waysigns.settings.max_lines = 5
+
+    -- Verify match_aspect_ratio = false produces identical board_w x board_h on Retina (real_hud_scaling = 2.0) in both modes
+    core.get_player_window_information = function()
+        return { size = { x = 1728, y = 1117 }, real_hud_scaling = 2.0 }
+    end
+    waysigns.settings.match_aspect_ratio = false
+    local dims_by_mode = {}
+    for _, mode in ipairs({ 'waypoint', 'overlay' }) do
+        waysigns.settings.display_mode = mode
+        waysigns.remove_all_huds(p)
+        waysigns.show_hud(p, sign_pos, sdata, { x = 0, y = 0, z = -1 }, nil, false)
+        local bg_tex = p.huds[st.hud_bg_id].text
+        local bw, bh = bg_tex:match('%[resize:(%d+)x(%d+)')
+        dims_by_mode[mode] = bw .. 'x' .. bh
+    end
+    assert(dims_by_mode.waypoint == dims_by_mode.overlay,
+        string.format('match_aspect_ratio=false plaque size must match across modes on Retina: waypoint=%s vs overlay=%s',
+            dims_by_mode.waypoint, dims_by_mode.overlay))
+    waysigns.settings.match_aspect_ratio = true
+
+    -- Verify Retina (real_hud_scaling = 2.0) 4-row (32-item) quickview dock containment in BOTH waypoint & overlay modes
+    local stacks20 = {}
+    for i = 1, 20 do
+        local iname = 'default:item_' .. i
+        core.registered_craftitems = core.registered_craftitems or {}
+        core.registered_craftitems[iname] = { description = 'Item ' .. i, inventory_image = 'default_apple.png' }
+        stacks20[i] = ItemStack({ name = iname, count = i })
+    end
+    local items32 = {}
+    for i = 1, 32 do
+        items32[i] = { name = 'default:item_' .. i, count = 1, icon = 'default_apple.png' }
+    end
+    local qv_5line_data = {
+        nodename = 'default:chest',
+        raw_text = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5',
+        tile = 'default_chest_front.png',
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.0,
+        is_infotext = true,
+        quickview_items = items32,
+        wrapped = waysigns.wrap_text('Line 1\nLine 2\nLine 3\nLine 4\nLine 5', 30, 5, 0xFFFFFF),
+    }
+    local _, _, _, _, _, b_margin32, grid_h32 = waysigns.get_quickview_dock_metrics(320, 32)
+    for _, mode in ipairs({ 'waypoint', 'overlay' }) do
+        waysigns.settings.display_mode = mode
+        waysigns.remove_all_huds(p)
+        waysigns.show_hud(p, { x = 14, y = 6, z = 3 }, qv_5line_data, { x = 0, y = 0, z = -1 }, nil, false)
+        local c_scale = (mode == 'waypoint') and 2.0 or 1.0
+        local dock_top_px = (160 - b_margin32 - grid_h32) * c_scale
+        local top_edge_px = -160 * c_scale
+        local l1_y = st.rendered_line_offsets[1]
+        local l5_y = st.rendered_line_offsets[5]
+        local half_fh = math.floor(st.rendered_font_height / 2)
+        assert(l1_y - half_fh > top_edge_px,
+            string.format('Retina %s Line 1 (%d) must stay inside top plaque edge (%d)', mode, l1_y, top_edge_px))
+        assert(l5_y + half_fh <= dock_top_px,
+            string.format('Retina %s Line 5 (%d + %d) must stay above 4-row quickview dock (%d)', mode, l5_y, half_fh, dock_top_px))
+    end
+
+    core.get_player_window_information = function()
+        return { size = { x = 1920, y = 1080 }, real_hud_scaling = 1.0 }
+    end
+
+    -- Verify quickview_show_all (true vs false) & quickview_max_slots
+    local qv_pos = {
+        x = 15, y = 6, z = 3,
+        meta = { infotext = 'Supply Chest' },
+        inv = {
+            get_list = function(_, lname) return lname == 'main' and stacks20 or nil end,
+            get_lists = function() return { main = stacks20 } end,
+        },
+    }
+    waysigns.settings.quickview_max_slots = 32
+    waysigns.settings.quickview_show_all = true
+    local qv_all = waysigns.get_node_infotext_data(qv_pos, { name = 'default:chest', param2 = 0 }, p)
+    assert(qv_all and qv_all.quickview_items and #qv_all.quickview_items == 20,
+        'quickview_show_all=true must extract all 20 occupied slots, got: ' .. tostring(qv_all and qv_all.quickview_items and #qv_all.quickview_items))
+
+    waysigns.settings.quickview_show_all = false
+    local qv_compact = waysigns.get_node_infotext_data(qv_pos, { name = 'default:chest', param2 = 0 }, p)
+    assert(qv_compact and qv_compact.quickview_items and #qv_compact.quickview_items == 8,
+        'quickview_show_all=false must cap visual quickview to single-row 8 slots (without manual cache clear), got: '
+        .. tostring(qv_compact and qv_compact.quickview_items and #qv_compact.quickview_items))
+
+    waysigns.settings.quickview_show_all = true
+    waysigns.settings.quickview_max_slots = 5
+    local qv_five = waysigns.get_node_infotext_data(qv_pos, { name = 'default:chest', param2 = 0 }, p)
+    assert(qv_five and qv_five.quickview_items and #qv_five.quickview_items == 5,
+        'quickview_max_slots=5 must cap visual quickview to 5 slots')
+    waysigns.settings.quickview_max_slots = 32
+
+    -- Verify show_frame & background_darkness cache isolation (without clearing texture_cache!)
+    waysigns.settings.show_frame = true
+    waysigns.settings.background_darkness = 0.40
+    local tex_framed_40 = waysigns.get_background_texture('default_wood.png', 320, 228, 1.0, false, false, false, false, nil)
+    waysigns.settings.show_frame = false
+    local tex_unframed_40 = waysigns.get_background_texture('default_wood.png', 320, 228, 1.0, false, false, false, false, nil)
+    assert(tex_framed_40 ~= tex_unframed_40 and not tex_unframed_40:find('waysigns_frame_vignette'),
+        'Toggling show_frame=false must return unframed texture without manual cache clear')
+    waysigns.settings.background_darkness = 0.20
+    local tex_unframed_20 = waysigns.get_background_texture('default_wood.png', 320, 228, 1.0, false, false, false, false, nil)
+    assert(tex_unframed_20:find('#060402:80'), 'background_darkness=0.20 must apply proportional wood glaze (#060402:80), got: ' .. tex_unframed_20)
+    waysigns.settings.background_darkness = 0.0
+    local tex_unframed_00 = waysigns.get_background_texture('default_wood.png', 320, 228, 1.0, false, false, false, false, nil)
+    assert(not tex_unframed_00:find('colorize'), 'background_darkness=0.0 must omit dark glaze completely')
+    waysigns.settings.show_frame = true
+    waysigns.settings.background_darkness = 0.40
+
+    -- Verify live overlay_pos_y, infotext_overlay_pos_y, and infotext_pos_y_offset updates + zero-packet steady state
+    waysigns.settings.display_mode = 'overlay'
+    waysigns.settings.overlay_pos_y = 0.50
+    waysigns.remove_all_huds(p)
+    local two_page_sign = {
+        nodename = 'default:sign_wall_wood',
+        raw_text = 'L1\nL2\nL3\nL4\nL5\nL6',
+        tile = 'default_wood.png',
+        text_color = 0xFFFFFF,
+        aspect_ratio = 1.40,
+        wrapped = waysigns.wrap_text('L1\nL2\nL3\nL4\nL5\nL6', 30, 5, 0xFFFFFF),
+    }
+    waysigns.show_hud(p, { x = 16, y = 6, z = 3 }, two_page_sign, { x = 0, y = 0, z = -1 }, nil, false)
+    assert(p.huds[st.hud_bg_id].position.y == 0.50, 'Initial overlay_pos_y must be 0.50')
+    waysigns.settings.overlay_pos_y = 0.65
+    waysigns.render_hud(p, st)
+    assert(math.abs(p.huds[st.hud_bg_id].position.y - 0.65) < 0.001, 'Bg HUD position.y must update live to 0.65')
+    assert(math.abs(p.huds[st.hud_line_ids[1]].position.y - 0.65) < 0.001, 'Line HUD position.y must update live to 0.65')
+    assert(math.abs(p.huds[st.hud_page_id].position.y - 0.65) < 0.001, 'Page badge HUD position.y must update live to 0.65')
+
+    local before_steady = p.changes
+    waysigns.render_hud(p, st)
+    assert(p.changes == before_steady, 'Steady-state overlay render_hud must emit 0 hud_change packets')
+    waysigns.settings.overlay_pos_y = 0.50
+
+    waysigns.settings.display_mode = 'waypoint'
+    waysigns.settings.infotext_pos_y_offset = 0.20
+    waysigns.remove_all_huds(p)
+    waysigns.show_hud(p, { x = 17, y = 6, z = 3 }, qv_5line_data, { x = 0, y = 0, z = -1 }, { x = 17, y = 6, z = 2.5 }, false)
+    assert(math.abs(p.huds[st.hud_bg_id].world_pos.y - 6.20) < 0.001, 'Waypoint world_pos.y must honor infotext_pos_y_offset=0.20')
+    waysigns.settings.infotext_pos_y_offset = 0.45
+    st.sign_face_pos = waysigns.get_sign_face_pos({ x = 17, y = 6, z = 3 }, { x = 0, y = 0, z = -1 }, { x = 17, y = 6, z = 2.5 }, false, true)
+    waysigns.render_hud(p, st)
+    assert(math.abs(p.huds[st.hud_bg_id].world_pos.y - 6.45) < 0.001, 'Waypoint world_pos.y must update live to 6.45')
+    assert(math.abs(p.huds[st.hud_line_ids[1]].world_pos.y - 6.45) < 0.001, 'Waypoint line world_pos.y must update live to 6.45')
+    local before_wp_steady = p.changes
+    waysigns.render_hud(p, st)
+    assert(p.changes == before_wp_steady, 'Steady-state waypoint render_hud must emit 0 hud_change packets')
+    waysigns.settings.infotext_pos_y_offset = 0.35
+
+    -- Verify enable_entity_inspection Direct Gaze Suppression & smooth moving-entity tracking + enable_marker=false gating
+    local mob_pos = { x = 10, y = 5, z = 3 }
+    local mob_obj = {
+        get_pos = function() return mob_pos end,
+        is_player = function() return false end,
+        is_valid = function() return true end,
+        get_properties = function() return { infotext = 'Guard Captain', collisionbox = { -0.3, 0, -0.3, 0.3, 1.8, 0.3 } } end,
+        set_properties = function() end,
+        get_luaentity = function()
+            return {
+                name = 'test:guard',
+                _waysigns_text = 'Guard Captain',
+                _waysigns_plaque = 'steel',
+                _waysigns_color = 'gold',
+                _waysigns_author = 'settings_audit_tester',
+            }
+        end,
+    }
+    waysigns.settings.enable_entity_inspection = true
+    waysigns.settings.enable_marker = true
+    waysigns.settings.marker_sense = true
+    p.wielded = ItemStack('waysigns:marker')
+
+    core.get_objects_inside_radius = function() return { mob_obj } end
+    core.line_of_sight = function() return true end
+    core.get_node_or_nil = function() return { name = 'air' } end
+
+    -- First: not looking at entity -> Scribe Sense beacon appears
+    waysigns.remove_all_huds(p)
+    waysigns.update_marker_waypoints(p, st, 0.2)
+    local ent_wp_key = 'ent_' .. tostring(mob_obj)
+    assert(st.marker_waypoints[ent_wp_key] ~= nil, 'Scribe Sense must show beacon for unpointed inscribed entity')
+
+    -- Pointing directly at entity in BOTH waypoint and overlay modes must suppress Scribe Sense beacon
+    for _, mode in ipairs({ 'waypoint', 'overlay' }) do
+        waysigns.settings.display_mode = mode
+        local edata = waysigns.get_entity_inscription_data(mob_obj)
+        assert(edata and edata.obj == mob_obj, 'get_entity_inscription_data must attach obj reference')
+        waysigns.show_hud(p, edata.pos, edata, { x = 0, y = 0, z = -1 }, edata.pos, false)
+        waysigns.update_marker_waypoints(p, st, 0.2)
+        assert(st.marker_waypoints[ent_wp_key] == nil,
+            'Direct Gaze Harmony must suppress entity Scribe Sense beacon when viewing entity HUD in ' .. mode .. ' mode')
+    end
+
+    -- Moving entity in waypoint mode updates world_pos smoothly in-place without tearing down HUDs or resetting fade
+    waysigns.settings.display_mode = 'waypoint'
+    waysigns.settings.fade_time = 0.3
+    waysigns.remove_all_huds(p)
+    local edata1 = waysigns.get_entity_inscription_data(mob_obj)
+    waysigns.show_hud(p, edata1.pos, edata1, { x = 0, y = 0, z = -1 }, edata1.pos, false)
+    st.opacity = 1.0
+    local orig_bg_id = st.hud_bg_id
+    mob_pos = { x = 10.5, y = 5, z = 3.2 }
+    local edata2 = waysigns.get_entity_inscription_data(mob_obj)
+    waysigns.show_hud(p, edata2.pos, edata2, { x = 0, y = 0, z = -1 }, edata2.pos, false)
+    assert(st.hud_bg_id == orig_bg_id, 'Moving entity must update HUD in-place without tearing down hud_bg_id')
+    assert(st.opacity == 1.0, 'Moving entity must preserve solid opacity=1.0 without restarting fade')
+    assert(math.abs(p.huds[st.hud_bg_id].world_pos.x - 10.5) < 0.001, 'Moving entity must update waypoint world_pos.x')
+
+    -- Disabling enable_marker must immediately clear Scribe Sense beacons and block marker usage
+    waysigns.remove_all_huds(p)
+    waysigns.update_marker_waypoints(p, st, 0.2)
+    assert(st.marker_waypoints[ent_wp_key] ~= nil, 'Beacon restored when looking away')
+    waysigns.settings.enable_marker = false
+    waysigns.update_player(p, 0.2)
+    assert(next(st.marker_waypoints) == nil, 'enable_marker=false must clear active Scribe Sense beacons')
+
+    local form_opened = false
+    local orig_show_fs = core.show_formspec
+    core.show_formspec = function() form_opened = true end
+    waysigns.on_use_marker(p.wielded, p, { type = 'object', ref = mob_obj })
+    assert(not form_opened, 'enable_marker=false must block on_use_marker formspec')
+    core.show_formspec = orig_show_fs
+
+    -- Cleanup & restore all settings and mocks
+    waysigns.remove_marker_waypoints(p, st)
+    waysigns.remove_all_huds(p)
+    core.get_player_window_information = orig_get_info
+    core.get_node_or_nil = orig_get_node_or_nil
+    core.get_objects_inside_radius = orig_get_objects
+    core.line_of_sight = orig_los
+    core.raycast = orig_raycast
+    core.chat_send_player = orig_chat
+    for k, v in pairs(saved_settings) do
+        waysigns.settings[k] = v
+    end
+    print('PASS Test 94')
+end)()
+
+print('================ ALL 94 UNIT TESTS PASSED ================')
 
 
 

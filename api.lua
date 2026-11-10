@@ -43,6 +43,9 @@
 ---@field rendered_page_text string|nil
 ---@field rendered_page_color integer|nil
 ---@field rendered_scale number|nil
+---@field rendered_text_scale number|nil
+---@field rendered_overlay_y number|nil
+---@field rendered_world_pos Vector|nil
 ---@field rendered_badge_x number|nil
 ---@field rendered_badge_y number|nil
 
@@ -54,32 +57,41 @@
 ---@class WaySigns
 waysigns = {
     settings = {
-        display_mode = core.settings:get('waysigns_display_mode') or 'waypoint',
-        max_distance = tonumber(core.settings:get('waysigns_max_distance')) or 4.5,
-        check_interval = tonumber(core.settings:get('waysigns_check_interval')) or 0.05,
-        fade_time = tonumber(core.settings:get('waysigns_fade_time')) or 0.3,
-        hud_scale = tonumber(core.settings:get('waysigns_hud_scale')) or 2.0,
+        display_mode = (function()
+            local m = core.settings:get('waysigns_display_mode')
+            return (m == 'overlay') and 'overlay' or 'waypoint'
+        end)(),
+        max_distance = math.max(1.0, math.min(15.0, tonumber(core.settings:get('waysigns_max_distance')) or 4.5)),
+        check_interval = math.max(0.01, math.min(0.5, tonumber(core.settings:get('waysigns_check_interval')) or 0.05)),
+        fade_time = math.max(0.0, math.min(1.0, tonumber(core.settings:get('waysigns_fade_time')) or 0.3)),
+        hud_scale = math.max(1.0, math.min(3.5, tonumber(core.settings:get('waysigns_hud_scale')) or 2.0)),
         match_aspect_ratio = core.settings:get_bool('waysigns_match_aspect_ratio', true),
         disable_sign_entities = core.settings:get_bool('waysigns_disable_sign_entities', true),
         enable_street_signs_entities = core.settings:get_bool('waysigns_enable_street_signs_entities', false),
-        overlay_pos_y = tonumber(core.settings:get('waysigns_overlay_pos_y')) or 0.50,
-        max_chars_per_line = tonumber(core.settings:get('waysigns_max_chars_per_line')) or 30,
-        max_lines = tonumber(core.settings:get('waysigns_max_lines')) or 5,
+        overlay_pos_y = math.max(0.2, math.min(0.8, tonumber(core.settings:get('waysigns_overlay_pos_y')) or 0.50)),
+        max_chars_per_line = math.max(15, math.min(60, math.floor(tonumber(core.settings:get('waysigns_max_chars_per_line')) or 30))),
+        max_lines = math.max(2, math.min(10, math.floor(tonumber(core.settings:get('waysigns_max_lines')) or 5))),
         auto_scroll = core.settings:get_bool('waysigns_auto_scroll', true),
-        scroll_delay = tonumber(core.settings:get('waysigns_scroll_delay')) or 4.0,
+        scroll_delay = math.max(1.0, math.min(15.0, tonumber(core.settings:get('waysigns_scroll_delay')) or 4.0)),
         show_frame = core.settings:get_bool('waysigns_show_frame', true),
-        contrast_mode = core.settings:get('waysigns_contrast_mode') or 'auto',
-        background_darkness = tonumber(core.settings:get('waysigns_background_darkness')) or 0.40,
+        contrast_mode = (function()
+            local cm = core.settings:get('waysigns_contrast_mode')
+            if cm == 'bright_text' or cm == 'preserve' then
+                return cm
+            end
+            return 'auto'
+        end)(),
+        background_darkness = math.max(0.0, math.min(0.8, tonumber(core.settings:get('waysigns_background_darkness')) or 0.40)),
         enable_node_infotext = core.settings:get_bool('waysigns_enable_node_infotext', false),
-        infotext_scale = tonumber(core.settings:get('waysigns_infotext_scale')) or 2.0,
-        infotext_pos_y_offset = tonumber(core.settings:get('waysigns_infotext_pos_y_offset')) or 0.35,
-        infotext_overlay_pos_y = tonumber(core.settings:get('waysigns_infotext_overlay_pos_y')) or 0.38,
+        infotext_scale = math.max(0.8, math.min(3.5, tonumber(core.settings:get('waysigns_infotext_scale')) or 2.0)),
+        infotext_pos_y_offset = math.max(0.0, math.min(0.5, tonumber(core.settings:get('waysigns_infotext_pos_y_offset')) or 0.35)),
+        infotext_overlay_pos_y = math.max(0.1, math.min(0.9, tonumber(core.settings:get('waysigns_infotext_overlay_pos_y')) or 0.38)),
         enable_inventory_quickview = core.settings:get_bool('waysigns_enable_inventory_quickview', true),
-        quickview_max_slots = math.max(1, math.min(32, tonumber(core.settings:get('waysigns_quickview_max_slots')) or 32)),
+        quickview_max_slots = math.max(1, math.min(32, math.floor(tonumber(core.settings:get('waysigns_quickview_max_slots')) or 32))),
         quickview_show_all = core.settings:get_bool('waysigns_quickview_show_all', true),
         quickview_respect_locks = core.settings:get_bool('waysigns_quickview_respect_locks', true),
         enable_marker = core.settings:get_bool('waysigns_enable_marker', true),
-        marker_uses = math.max(0, tonumber(core.settings:get('waysigns_marker_uses')) or 100),
+        marker_uses = math.max(0, math.min(1000, math.floor(tonumber(core.settings:get('waysigns_marker_uses')) or 100))),
         enable_entity_inspection = (function()
             local v = core.settings:get_bool('waysigns_enable_entity_inspection')
             if v ~= nil then return v end
@@ -87,12 +99,12 @@ waysigns = {
             if v_hud ~= nil then return v_hud end
             return false
         end)(),
-        marker_max_chars = math.max(10, math.min(1000, tonumber(core.settings:get('waysigns_marker_max_chars')) or 250)),
+        marker_max_chars = math.max(10, math.min(1000, math.floor(tonumber(core.settings:get('waysigns_marker_max_chars')) or 250))),
         marker_sense = core.settings:get_bool('waysigns_marker_sense', true),
-        marker_sense_range = math.max(2.0, math.min(30.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),
-        marker_sense_max = math.max(1, math.min(20, tonumber(core.settings:get('waysigns_marker_sense_max')) or 12)),
-        marker_sense_min_opacity = math.max(0, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_min_opacity')) or 75)),
-        marker_sense_max_opacity = math.max(10, math.min(255, tonumber(core.settings:get('waysigns_marker_sense_max_opacity')) or 255)),
+        marker_sense_range = math.max(4.0, math.min(25.0, tonumber(core.settings:get('waysigns_marker_sense_range')) or 10.0)),
+        marker_sense_max = math.max(1, math.min(20, math.floor(tonumber(core.settings:get('waysigns_marker_sense_max')) or 12))),
+        marker_sense_min_opacity = math.max(0, math.min(255, math.floor(tonumber(core.settings:get('waysigns_marker_sense_min_opacity')) or 75))),
+        marker_sense_max_opacity = math.max(50, math.min(255, math.floor(tonumber(core.settings:get('waysigns_marker_sense_max_opacity')) or 255))),
         marker_sense_scale = math.max(1.0, math.min(10.0, tonumber(core.settings:get('waysigns_marker_sense_scale')) or 4.0)),
         marker_sense_owner_color = core.settings:get_bool('waysigns_marker_sense_owner_color', true),
     },
@@ -771,8 +783,8 @@ end
 ---@param default_color number|nil Fallback color if no color tags are present
 ---@return WaySignsWrapResult result Wrapped lines split into pages with metrics
 function waysigns.wrap_text(raw_text, max_chars, max_lines, default_color)
-    max_chars = max_chars or waysigns.settings.max_chars_per_line
-    max_lines = max_lines or waysigns.settings.max_lines
+    max_chars = math.max(10, math.floor(tonumber(max_chars or waysigns.settings.max_chars_per_line) or 30))
+    max_lines = math.max(1, math.floor(tonumber(max_lines or waysigns.settings.max_lines) or 5))
     default_color = default_color or 0xFFFFFF
 
     -- Normalize CRLF to LF
@@ -1064,6 +1076,7 @@ end
 ---@return number line_height Total baseline-to-baseline line height in screen pixels
 ---@return number line_spacing Positive space/gap between lines in screen pixels
 ---@return number font_h Estimated font glyph height on screen in pixels
+---@return number text_scale Effective HUD font size multiplier for 2D overlay text elements
 function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, is_waypoint, has_quickview_items, content_lines)
     local real_hud_scaling = nil
     local eff_h = screen_h
@@ -1089,16 +1102,21 @@ function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, 
 
     local client_scale = (real_hud_scaling and real_hud_scaling > 0) and real_hud_scaling or 1.0
     local scale = hud_scale or 2.0
+    -- Normalize 2D overlay text scale against the default 2.0 HUD scale baseline so that at
+    -- hud_scale = 2.0, 2D overlay text renders at 1.0x default font size (matching 3D waypoint mode).
+    local norm_scale = math.max(0.5, scale / 2.0)
+    local text_scale = (is_waypoint == false) and norm_scale or 1.0
 
     -- Estimate rendered font glyph height on client display
     local font_h
     if is_waypoint ~= false then
-        -- 3D Waypoint overlay mode: engine renders text using client GUI font
+        -- 3D Waypoint overlay mode: engine renders text using client GUI font (1.0x)
         -- Base font glyph height in Luanti is ~20px (FreeType bounds for 16pt font)
         font_h = math.max(18, math.floor(20 * client_scale + 0.5))
     else
-        -- 2D screen HUD overlay mode: text size is multiplied by hud_scale
-        font_h = math.max(16, math.floor(16 * scale + 0.5))
+        -- 2D screen HUD overlay mode: engine multiplies offset by m_scale_factor in C++,
+        -- so keep font_h in base HUD units scaled by norm_scale (20px at default hud_scale = 2.0)
+        font_h = math.max(10, math.floor(20 * norm_scale + 0.5))
     end
 
     -- Calculate screen-responsive line spacing (gap between lines)
@@ -1126,19 +1144,23 @@ function waysigns.calculate_line_metrics(player, hud_scale, screen_w, screen_h, 
     if is_waypoint ~= false then
         line_spacing = math.max(4, math.floor(base_gap * client_scale + 0.5))
     else
-        line_spacing = math.max(4, math.floor(base_gap * (scale / 2.0) + 0.5))
+        line_spacing = math.max(4, math.floor(base_gap * norm_scale + 0.5))
     end
 
     local line_height = font_h + line_spacing
 
     -- If displaying quickview dock with 5 lines of text on a square plaque,
-    -- clamp line_height slightly (e.g. max 25-26px) so 5 lines fit above the dock
+    -- clamp line_height slightly so all 5 lines fit cleanly above a full 4-row dock without overlapping
     if has_quickview_items and content_lines and content_lines >= 5 then
-        line_height = math.min(line_height, math.max(22, math.floor(25 * client_scale + 0.5)))
+        if is_waypoint ~= false then
+            line_height = math.min(line_height, math.max(22, math.floor(25 * client_scale + 0.5)))
+        else
+            line_height = math.min(line_height, math.max(font_h + 4, math.floor(25 * norm_scale + 0.5)))
+        end
         line_spacing = math.max(4, line_height - font_h)
     end
 
-    return line_height, line_spacing, font_h
+    return line_height, line_spacing, font_h, text_scale
 end
 
 ---Calculate screen-aware pagination badge offset positioned in the top-right corner
@@ -1186,19 +1208,19 @@ function waysigns.calculate_pagination_offset(player, board_w, board_h, hud_scal
         badge_y = -half_h_screen + pad_t + half_badge_h
     else
         -- In 2D screen overlay mode, Luanti's C++ engine multiplies both image and text offset
-        -- by m_scale_factor, so coordinates remain in base HUD units.
+        -- by m_scale_factor, so coordinates remain in base HUD units scaled by norm_scale.
         local half_w = math.floor(board_w / 2)
         local half_h = math.floor(board_h / 2)
 
-        local scale = hud_scale or 2.0
-        local font_h = math.max(14, math.floor(16 * scale * 0.80 + 0.5))
-        local char_w = math.max(6, math.floor(8.5 * scale * 0.80))
+        local norm_scale = math.max(0.5, (hud_scale or 2.0) / 2.0)
+        local font_h = math.max(14, math.floor(20 * norm_scale + 0.5))
+        local char_w = math.max(6, math.floor(9 * norm_scale + 0.5))
         local badge_w = char_count * char_w
         local half_badge_w = math.floor(badge_w / 2)
         local half_badge_h = math.floor(font_h / 2)
 
-        local pad_r = math.max(12, math.floor(16 * scale + 0.5))
-        local pad_t = math.max(8, math.floor(10 * scale + 0.5))
+        local pad_r = math.max(12, math.floor(18 * norm_scale + 0.5))
+        local pad_t = math.max(8, math.floor(12 * norm_scale + 0.5))
 
         badge_x = half_w - pad_r - half_badge_w
         badge_y = -half_h + pad_t + half_badge_h
@@ -1266,7 +1288,8 @@ function waysigns.get_background_texture(base_tile, width, height, alpha, is_met
     end
 
     local is_glass_sign = is_glass or not not tile:find('glass')
-    local cache_key = tile .. '_' .. w .. 'x' .. h .. '_' .. (is_metal and 'm' or 'w') .. '_' .. (is_glass_sign and 'g' or 'ng') .. '_' .. (is_light_bg and 'l' or 'd') .. '_' .. (is_text_dark and 'td' or 'tl') .. '_' .. dark_byte .. '_' .. opacity_byte .. inv_fingerprint
+    local show_frame = waysigns.settings.show_frame and true or false
+    local cache_key = tile .. '_' .. w .. 'x' .. h .. '_' .. (is_metal and 'm' or 'w') .. '_' .. (is_glass_sign and 'g' or 'ng') .. '_' .. (is_light_bg and 'l' or 'd') .. '_' .. (is_text_dark and 'td' or 'tl') .. '_' .. (show_frame and 'f' or 'nf') .. '_' .. dark_byte .. '_' .. opacity_byte .. inv_fingerprint
     local cached = waysigns.texture_cache[cache_key]
     if cached then
         return cached
@@ -1295,13 +1318,15 @@ function waysigns.get_background_texture(base_tile, width, height, alpha, is_met
     elseif is_light_bg or dark_byte == 0 then
         base_layer = resizable_tile .. '^[resize:' .. w .. 'x' .. h
     else
+        local wood_glaze = (darkness < 0.40) and math.min(160, math.floor(darkness * 400 + 0.5))
+            or math.max(dark_byte, 160)
         local tint_color = is_metal and ('#181818:' .. dark_byte)
-            or ('#060402:' .. math.max(dark_byte, 160))
+            or ('#060402:' .. wood_glaze)
         base_layer = resizable_tile .. '^[resize:' .. w .. 'x' .. h .. '^[colorize:' .. tint_color
     end
 
     local full_texture = base_layer
-    if waysigns.settings.show_frame and not is_light_bg then
+    if show_frame and not is_light_bg then
         local vignette_layer = 'waysigns_frame_vignette.png^[resize:' .. w .. 'x' .. h
         full_texture = '(' .. base_layer .. '^' .. vignette_layer .. ')'
     end
@@ -1387,15 +1412,10 @@ function waysigns.get_or_create_player_state(player)
     return waysigns.players[name]
 end
 
----Clean up and remove all active HUD elements (text lines, page indicator, background) for a player
+---Remove active HUD elements and reset rendered element caches while preserving target sign state
 ---@param player ObjectRef Target player to remove HUD elements from
-function waysigns.remove_all_huds(player)
-    local name = player:get_player_name()
-    local state = waysigns.players[name]
-    if not state then
-        return
-    end
-
+---@param state WaySignsPlayerState Active player HUD state table
+function waysigns.clear_hud_elements(player, state)
     -- Remove text lines and page indicator first so text never renders
     -- on screen for even a single frame without its background plaque.
     for _, id in ipairs(state.hud_line_ids) do
@@ -1422,6 +1442,23 @@ function waysigns.remove_all_huds(player)
     state.rendered_badge_x = nil
     state.rendered_badge_y = nil
     state.rendered_bg_texture = nil
+    state.rendered_page = nil
+    state.rendered_scale = nil
+    state.rendered_text_scale = nil
+    state.rendered_overlay_y = nil
+    state.rendered_world_pos = nil
+end
+
+---Clean up and remove all active HUD elements (text lines, page indicator, background) for a player
+---@param player ObjectRef Target player to remove HUD elements from
+function waysigns.remove_all_huds(player)
+    local name = player:get_player_name()
+    local state = waysigns.players[name]
+    if not state then
+        return
+    end
+
+    waysigns.clear_hud_elements(player, state)
 
     state.is_visible = false
     state.opacity = 0
@@ -1433,8 +1470,6 @@ function waysigns.remove_all_huds(player)
     state.hud_display_mode = nil
     state.last_purged_pos = nil
     state.purge_timer = 0
-    state.rendered_page = nil
-    state.rendered_scale = nil
 end
 
 ---Check if a player is dead or undergoing a death sequence
@@ -1527,11 +1562,19 @@ function waysigns.render_hud(player, state)
     end
 
     if state.hud_display_mode and state.hud_display_mode ~= waysigns.settings.display_mode then
-        waysigns.remove_all_huds(player)
+        waysigns.clear_hud_elements(player, state)
     end
     state.hud_display_mode = waysigns.settings.display_mode
 
     local screen_w, screen_h = waysigns.get_player_window_size(player)
+    local client_scale = 1.0
+    if player then
+        local pname = player:get_player_name()
+        local win_info = core.get_player_window_information(pname)
+        if win_info and win_info.real_hud_scaling and win_info.real_hud_scaling > 0 then
+            client_scale = win_info.real_hud_scaling
+        end
+    end
     local hud_scale = waysigns.get_effective_scale(player, sign_data.is_infotext, screen_w, screen_h)
     local pages = sign_data.wrapped.pages
     local page_idx = state.current_page
@@ -1545,7 +1588,8 @@ function waysigns.render_hud(player, state)
     local is_waypoint = (waysigns.settings.display_mode == 'waypoint')
     local padding_v = math.floor(18 * hud_scale)
     local padding_h = math.floor(24 * hud_scale)
-    local char_width = 8.5 * hud_scale
+    local text_unit_scale = is_waypoint and 1.0 or math.max(0.5, hud_scale / 2.0)
+    local char_width = 9.0 * text_unit_scale
 
     local ar = sign_data.aspect_ratio or 1.40
 
@@ -1559,19 +1603,21 @@ function waysigns.render_hud(player, state)
         qv_grid_h = grid_h
     end
 
-    local line_height, line_spacing, font_h = waysigns.calculate_line_metrics(
+    local line_height, line_spacing, font_h, line_text_scale = waysigns.calculate_line_metrics(
         player, hud_scale, screen_w, screen_h, is_waypoint, has_quickview_items, #lines
     )
+    line_text_scale = line_text_scale or math.max(0.5, hud_scale / 2.0)
     state.rendered_line_height = line_height
     state.rendered_line_spacing = line_spacing
     state.rendered_font_height = font_h
 
-    -- Content required space
+    -- Content required space in base HUD units
     local max_line_len = (sign_data.wrapped and sign_data.wrapped.max_line_len) or 12
     local text_w = math.floor(max_line_len * char_width)
     local content_lines = #lines
+    local base_line_h = is_waypoint and math.ceil(line_height / client_scale) or line_height
     local req_w = text_w + padding_h * 2
-    local req_h = content_lines * line_height + padding_v * 2
+    local req_h = content_lines * base_line_h + padding_v * 2
     if total_pages > 1 then
         req_w = math.max(req_w, text_w + padding_h * 2 + math.floor(30 * hud_scale))
     end
@@ -1587,10 +1633,14 @@ function waysigns.render_hud(player, state)
         max_screen_h = math.max(100, math.floor(screen_h * 0.70))
     end
 
+    local expanded_limits = (max_line_len > 30) or (content_lines > 5)
     local board_w, board_h
     if has_quickview_items then
         -- Force square plaque when quickview items are displayed, providing ample 1:1 vertical canvas
         local base_dim = math.floor(160 * hud_scale)
+        if expanded_limits then
+            base_dim = math.max(base_dim, math.max(req_w, req_h))
+        end
         board_w = math.max(64, math.min(max_screen_w, base_dim))
         board_h = math.max(64, math.min(max_screen_h, board_w))
         board_w = board_h
@@ -1599,8 +1649,11 @@ function waysigns.render_hud(player, state)
         qv_b_margin = b_margin
         qv_grid_h = grid_h
     elseif sign_data.is_infotext and not sign_data.has_inscription then
-        -- Option 1: Lock plain infotext plaques to a constant, stable square size regardless of item count
+        -- Lock plain infotext plaques to a constant, stable square size regardless of item count
         local base_dim = math.floor(160 * hud_scale)
+        if expanded_limits then
+            base_dim = math.max(base_dim, math.max(req_w, req_h))
+        end
         board_w = math.max(64, math.min(max_screen_w, base_dim))
         board_h = math.max(64, math.min(max_screen_h, board_w))
         board_w = board_h
@@ -1616,6 +1669,16 @@ function waysigns.render_hud(player, state)
         end
         board_w = base_w
         board_h = base_h
+        if expanded_limits then
+            if req_w > board_w then
+                board_w = req_w
+                board_h = math.floor(board_w / ar)
+            end
+            if req_h > board_h then
+                board_h = req_h
+                board_w = math.floor(board_h * ar)
+            end
+        end
 
         -- Max size limit considering player resolution and screen boundaries
         local max_w = math.min(max_screen_w, math.floor(460 * hud_scale))
@@ -1706,6 +1769,9 @@ function waysigns.render_hud(player, state)
         or 0.50
 
     local page_changed = (state.rendered_page ~= page_idx) or (state.rendered_scale ~= hud_scale)
+    local world_pos_changed = is_waypoint and world_pos ~= nil
+        and (not state.rendered_world_pos or not vector.equals(state.rendered_world_pos, world_pos))
+    local overlay_y_changed = (not is_waypoint) and (state.rendered_overlay_y ~= overlay_y)
 
     -- Background image (image_waypoint or screen image)
     if not state.hud_bg_id then
@@ -1736,21 +1802,20 @@ function waysigns.render_hud(player, state)
             player:hud_change(state.hud_bg_id, 'text', bg_texture)
             state.rendered_bg_texture = bg_texture
         end
-        if page_changed then
-            if is_waypoint and world_pos then
-                player:hud_change(state.hud_bg_id, 'world_pos', world_pos)
-            elseif not is_waypoint then
-                player:hud_change(state.hud_bg_id, 'position', { x = 0.5, y = overlay_y })
-            end
+        if is_waypoint and world_pos and (page_changed or world_pos_changed) then
+            player:hud_change(state.hud_bg_id, 'world_pos', world_pos)
+        elseif not is_waypoint and (page_changed or overlay_y_changed) then
+            player:hud_change(state.hud_bg_id, 'position', { x = 0.5, y = overlay_y })
         end
     end
 
     -- Line text elements
     local start_y
     if has_quickview_items and qv_grid_h and qv_b_margin then
-        local grid_top_offset = math.floor(board_h / 2) - qv_b_margin - qv_grid_h
-        local top_limit = -math.floor(board_h / 2) + padding_v
-        local bottom_limit = grid_top_offset - math.floor(6 * hud_scale)
+        local coord_scale = is_waypoint and client_scale or 1.0
+        local grid_top_offset = math.floor((math.floor(board_h / 2) - qv_b_margin - qv_grid_h) * coord_scale)
+        local top_limit = math.floor((-math.floor(board_h / 2) + padding_v) * coord_scale)
+        local bottom_limit = grid_top_offset - math.floor(6 * hud_scale * coord_scale)
         local text_area_center = math.floor((top_limit + bottom_limit) / 2)
         start_y = text_area_center - math.floor((#lines - 1) * line_height / 2)
     else
@@ -1798,8 +1863,8 @@ function waysigns.render_hud(player, state)
                     position = { x = 0.5, y = overlay_y },
                     text = display_text,
                     number = current_color,
-                    size = { x = hud_scale },
-                    style = 1,
+                    size = { x = line_text_scale, y = 0 },
+                    style = 0,
                     alignment = { x = 0, y = 0 },
                     offset = { x = 0, y = line_y },
                     z_index = 55,
@@ -1823,7 +1888,7 @@ function waysigns.render_hud(player, state)
                     player:hud_change(elem_id, 'offset', { x = 0, y = line_y })
                     state.rendered_line_offsets[i] = line_y
                 end
-                if page_changed and world_pos then
+                if world_pos and (page_changed or world_pos_changed) then
                     player:hud_change(elem_id, 'world_pos', world_pos)
                 end
             else
@@ -1839,13 +1904,16 @@ function waysigns.render_hud(player, state)
                     player:hud_change(elem_id, 'offset', { x = 0, y = line_y })
                     state.rendered_line_offsets[i] = line_y
                 end
-                if page_changed then
-                    player:hud_change(elem_id, 'size', { x = hud_scale })
+                if page_changed or state.rendered_text_scale ~= line_text_scale then
+                    player:hud_change(elem_id, 'size', { x = line_text_scale, y = 0 })
+                end
+                if page_changed or overlay_y_changed or state.rendered_text_scale ~= line_text_scale then
                     player:hud_change(elem_id, 'position', { x = 0.5, y = overlay_y })
                 end
             end
         end
     end
+    state.rendered_text_scale = line_text_scale
 
     -- Remove extra line elements if current page has fewer lines
     if #state.hud_line_ids > #lines then
@@ -1868,6 +1936,7 @@ function waysigns.render_hud(player, state)
         local pb_base = is_light_bg and 60 or 180
         local page_color = pr_base * 65536 + pg_base * 256 + pb_base
         local display_page = (text_alpha > 0.01) and page_str or ''
+        local page_scale = math.max(0.5, hud_scale / 2.0)
 
         if not state.hud_page_id then
             if is_waypoint then
@@ -1888,8 +1957,8 @@ function waysigns.render_hud(player, state)
                     position = { x = 0.5, y = overlay_y },
                     text = display_page,
                     number = page_color,
-                    size = { x = math.max(0.8, hud_scale * 0.80) },
-                    style = 1,
+                    size = { x = page_scale, y = 0 },
+                    style = 0,
                     alignment = { x = 0, y = 0 },
                     offset = { x = badge_x, y = badge_y },
                     z_index = 56,
@@ -1917,11 +1986,13 @@ function waysigns.render_hud(player, state)
                 state.rendered_badge_x = badge_x
                 state.rendered_badge_y = badge_y
             end
-            if page_changed then
-                if is_waypoint and world_pos then
-                    player:hud_change(state.hud_page_id, 'world_pos', world_pos)
-                elseif not is_waypoint then
-                    player:hud_change(state.hud_page_id, 'size', { x = math.max(0.8, hud_scale * 0.80) })
+            if is_waypoint and world_pos and (page_changed or world_pos_changed) then
+                player:hud_change(state.hud_page_id, 'world_pos', world_pos)
+            elseif not is_waypoint then
+                if page_changed then
+                    player:hud_change(state.hud_page_id, 'size', { x = page_scale, y = 0 })
+                end
+                if page_changed or overlay_y_changed then
                     player:hud_change(state.hud_page_id, 'position', { x = 0.5, y = overlay_y })
                 end
             end
@@ -1937,6 +2008,13 @@ function waysigns.render_hud(player, state)
 
     state.rendered_page = page_idx
     state.rendered_scale = hud_scale
+    if is_waypoint then
+        state.rendered_world_pos = world_pos and { x = world_pos.x, y = world_pos.y, z = world_pos.z } or nil
+        state.rendered_overlay_y = nil
+    else
+        state.rendered_overlay_y = overlay_y
+        state.rendered_world_pos = nil
+    end
     state.is_visible = true
 end
 
@@ -1953,9 +2031,11 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
     end
 
     local state = waysigns.get_or_create_player_state(player)
-    local pos_changed = not state.current_sign_pos or not vector.equals(state.current_sign_pos, sign_pos)
     local prev = state.current_sign_data
+    local same_entity = prev and prev.is_entity and sign_data.is_entity and prev.obj ~= nil and prev.obj == sign_data.obj
+    local pos_changed = not same_entity and (not state.current_sign_pos or not vector.equals(state.current_sign_pos, sign_pos))
     local data_changed = not prev
+        or same_entity
         or (prev.raw_text ~= sign_data.raw_text)
         or (prev.inv_hash ~= sign_data.inv_hash)
         or (prev.tile ~= sign_data.tile)
@@ -1967,6 +2047,9 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
         or (prev.is_metal ~= sign_data.is_metal)
         or (prev.is_light_bg ~= sign_data.is_light_bg)
         or (prev.is_glass ~= sign_data.is_glass)
+        or (prev.is_infotext ~= sign_data.is_infotext)
+        or (prev.aspect_ratio ~= sign_data.aspect_ratio)
+        or (prev.wrapped ~= sign_data.wrapped)
         or (prev.quickview_items ~= sign_data.quickview_items)
 
     if not state.is_visible or pos_changed then
@@ -1988,12 +2071,16 @@ function waysigns.show_hud(player, sign_pos, sign_data, normal, intersection_poi
         waysigns.render_hud(player, state)
         return
     elseif data_changed then
-        -- Same node position, but text, plaque, or container contents updated: update in-place without tearing down HUDs
+        -- Same node or entity target, but text, plaque, position, or container contents updated: update in-place
+        local reset_page = (prev.raw_text ~= sign_data.raw_text) or (prev.wrapped ~= sign_data.wrapped)
+        state.current_sign_pos = sign_pos
         state.current_sign_data = sign_data
         state.sign_face_pos = (sign_data.is_entity and (sign_data.pos or sign_pos))
             or waysigns.get_sign_face_pos(sign_pos, state.current_sign_normal, intersection_point, is_attached_above, sign_data.is_infotext)
-        state.current_page = 1
-        state.page_timer = 0
+        if reset_page then
+            state.current_page = 1
+            state.page_timer = 0
+        end
         state.target_opacity = 1.0
 
         waysigns.render_hud(player, state)
@@ -2432,7 +2519,8 @@ function waysigns.update_player(player, dtime)
         end
 
         if pointed_sign_pos and pointed_sign_data then
-            if waysigns.settings.disable_sign_entities and waysigns.purge_sign_entities and not pointed_sign_data.is_infotext then
+            if waysigns.settings.disable_sign_entities and waysigns.purge_sign_entities
+                and not pointed_sign_data.is_infotext and not pointed_sign_data.is_entity then
                 local pos_changed = not state.last_purged_pos or not vector.equals(state.last_purged_pos, pointed_sign_pos)
                 state.purge_timer = state.purge_timer + waysigns.settings.check_interval
                 if pos_changed or state.purge_timer >= 2.0 then
@@ -2479,7 +2567,7 @@ function waysigns.update_player(player, dtime)
         local total_pages = #state.current_sign_data.wrapped.pages
         if total_pages > 1 then
             state.page_timer = state.page_timer + dtime
-            if state.page_timer >= waysigns.settings.scroll_delay then
+            if state.page_timer >= math.max(0.1, waysigns.settings.scroll_delay) then
                 state.page_timer = 0
                 state.current_page = (state.current_page % total_pages) + 1
                 waysigns.render_hud(player, state)
@@ -2488,7 +2576,7 @@ function waysigns.update_player(player, dtime)
     end
 
     -- Marker Sense: Proximity waypoints when wielding waysigns:marker
-    if waysigns.settings.marker_sense then
+    if waysigns.settings.enable_marker and waysigns.settings.marker_sense then
         state.marker_sense_timer = (state.marker_sense_timer or 0) + dtime
         local interval = math.min(0.15, waysigns.settings.check_interval or 0.10)
         if state.marker_sense_timer >= interval then
